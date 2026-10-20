@@ -1,0 +1,59 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.*
+
+# Build output
+dist/
+build/
+out/
+*.tsbuildinfo
+.vite/
+.nest/
+
+# Environment
+.env
+.env.local
+.env.*.local
+.env.*
+!.env.example
+
+# Tests & coverage
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+blob-report/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Caches
+.cache/
+.turbo/
+.eslintcache
+.oxlintcache
+
+# Editors / IDE
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local databases / docker volumes
+*.sqlite
+*.sqlite3
+pgdata/
+postgres-data/
