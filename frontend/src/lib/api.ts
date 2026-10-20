@@ -28,7 +28,12 @@ export function setToken(token: string | null): void {
   }
 }
 
-export const api = axios.create({ baseURL: '/api' })
+// In development Vite proxies /api to the NestJS server. In production the
+// frontend is served as a static site, so point it at the deployed API with
+// VITE_API_URL (inlined at build time by Vite).
+const apiBaseUrl = import.meta.env.VITE_API_URL?.replace(/\/$/, '') || '/api'
+
+export const api = axios.create({ baseURL: apiBaseUrl })
 
 api.interceptors.request.use((config) => {
   const token = getToken()
