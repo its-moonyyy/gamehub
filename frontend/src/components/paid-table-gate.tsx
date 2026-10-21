@@ -58,7 +58,7 @@ export function PaidTableGate({ children }: { children: ReactNode }) {
   if (allowedTableId === tableId) return children
 
   return (
-    <div className="flex h-dvh items-center justify-center p-4">
+    <div className="site-page-container flex h-dvh items-center justify-center p-4">
       {table?.id === Number(tableId) ? (
         <Card className="w-full max-w-md">
           <CardHeader>

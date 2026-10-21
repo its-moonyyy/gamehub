@@ -143,12 +143,11 @@ export function CreateTableDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-md">
+      <DialogContent className="club-create-dialog max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Create a table</DialogTitle>
           <DialogDescription>
-            Open your own {game.name} table. Its unique name is generated from
-            the game and your display name. Every seat goes to a real player.
+            Your {game.name} table. Real players, your rules.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={form.handleSubmit(onSubmit)} noValidate>

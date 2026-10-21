@@ -445,7 +445,7 @@ export function DominoRoomPage() {
   const selectedPiece = hand.find((tile) => tile.id === selectedTile)
 
   return (
-    <div data-game="dominoes" className="grid h-[100dvh] grid-cols-1 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-background room-side:grid-cols-[minmax(0,1fr)_minmax(240px,46%)] room-side:grid-rows-[auto_minmax(0,1fr)]">
+    <div data-game="dominoes" className="glass-game-shell grid h-[100dvh] grid-cols-1 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-background room-side:grid-cols-[minmax(0,1fr)_minmax(240px,46%)] room-side:grid-rows-[auto_minmax(0,1fr)]">
       {/* Top bar */}
       <div className="room-topbar flex shrink-0 items-center gap-2 border-b bg-card px-3 py-2.5 room-side:col-span-2">
         <Button variant="ghost" size="icon" asChild>
@@ -468,7 +468,6 @@ export function DominoRoomPage() {
             {showTimer ? `${secondsLeft}s` : '—'}
           </span>
         </div>
-        <PlayerWalletBadge />
         <RoomConnectionStatus />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -487,6 +486,11 @@ export function DominoRoomPage() {
                 </span>
               </div>
             </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <div className="flex items-center justify-between gap-4 px-2 py-1.5">
+              <span className="text-xs text-muted-foreground">Wallet balance</span>
+              <PlayerWalletBadge />
+            </div>
             <DropdownMenuSeparator />
             <DropdownMenuItem disabled>
               <MessageCircleIcon />

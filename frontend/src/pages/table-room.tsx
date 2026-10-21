@@ -53,6 +53,31 @@ const SEAT_WIDTH_PERCENT = 25.2
  * this size and is scaled as a whole to fit the screen, so every part of
  * it — seats, cards, badges — stays visible and in proportion.
  */
+// Short portrait screens keep labels legible with a shallower seat layout.
+function compactSeatPosition(index: number, count: number, chip?: 'left' | 'right') {
+  const positions: Record<number, number[][]> = {
+    2: [[50, 14], [50, 86]],
+    3: [[50, 14], [84, 86], [16, 86]],
+    4: [[16, 14], [84, 14], [84, 86], [16, 86]],
+    5: [[16, 14], [50, 14], [84, 14], [84, 86], [16, 86]],
+    6: [[16, 14], [50, 14], [84, 14], [84, 86], [50, 86], [16, 86]],
+    7: [[16, 14], [50, 14], [84, 14], [86, 50], [84, 86], [50, 86], [16, 86]],
+    8: [[16, 14], [50, 14], [84, 14], [86, 50], [84, 86], [50, 86], [16, 86], [14, 50]],
+  }
+  const [x, y] = (positions[count] ?? positions[8])[index]
+  return chip
+    ? { left: `${x + (chip === 'left' ? -8 : 8)}%`, top: `${y + (y > 50 ? -12 : 12)}%` }
+    : { left: `${x}%`, top: `${y}%`, width: '27%', height: 80, aspectRatio: 'auto', transform: 'translate(-50%, -50%)' }
+}
+// Wide rooms use a horizontal social table; phones retain the compact ring.
+function wideSeatPosition(index: number, count: number, chip?: 'left' | 'right') {
+  const angle = Math.PI / 2 + (index / count) * Math.PI * 2
+  const x = 50 + Math.cos(angle) * 41
+  const y = 50 + Math.sin(angle) * 35
+  return chip
+    ? { left: `${x + (chip === 'left' ? -5 : 5)}%`, top: `${y + (y > 50 ? -13 : 13)}%` }
+    : { left: `${x}%`, top: `${y}%`, width: '14%', aspectRatio: '1.12', transform: 'translate(-50%, -50%)' }
+}
 const TABLE_WIDTH = 412
 const TABLE_HEIGHT = 690
 
@@ -305,6 +330,8 @@ export function TableRoomPage() {
   const [inviteOpen, setInviteOpen] = useState(false)
   const tableAreaRef = useRef<HTMLDivElement>(null)
   const [tableZoom, setTableZoom] = useState(1)
+  const [wideTable, setWideTable] = useState(false)
+  const [compactTable, setCompactTable] = useState(false)
   const requestSeqRef = useRef(0)
   const shownResultRef = useRef('init')
 
@@ -319,7 +346,11 @@ export function TableRoomPage() {
       // clientWidth/Height include the 12px padding on each side.
       const width = area.clientWidth - 24
       const height = area.clientHeight - 24
-      setTableZoom(Math.min(width / TABLE_WIDTH, height / TABLE_HEIGHT, 1))
+      const wide = width >= 650 && width / height > 1.15
+      const compact = !wide && height < 470
+      setWideTable(wide)
+      setCompactTable(compact)
+      setTableZoom(Math.min(width / (wide ? 900 : compact ? 360 : TABLE_WIDTH), height / (wide ? 520 : compact ? 320 : TABLE_HEIGHT), 1))
     }
     measure()
     const observer = new ResizeObserver(measure)
@@ -578,7 +609,7 @@ export function TableRoomPage() {
   const turnRiver = community.slice(3, 5)
 
   return (
-    <div data-game="poker" className="grid h-[100dvh] grid-cols-1 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-background room-side:grid-cols-[minmax(0,1fr)_minmax(240px,46%)] room-side:grid-rows-[auto_minmax(0,1fr)]">
+    <div data-game="poker" className="club-poker-room glass-game-shell grid h-[100dvh] grid-cols-1 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-background room-side:grid-cols-[minmax(0,1fr)_minmax(240px,46%)] room-side:grid-rows-[auto_minmax(0,1fr)]">
       {/* Top bar */}
       <div className="room-topbar flex shrink-0 items-center gap-2 border-b bg-card px-3 py-2.5 room-side:col-span-2">
         <Button variant="ghost" size="icon" asChild>
@@ -586,7 +617,7 @@ export function TableRoomPage() {
             <ArrowLeftIcon />
           </Link>
         </Button>
-        <div className="flex flex-1 flex-col items-center">
+        <div className="club-room-timer flex flex-1 flex-col items-center">
           <span className="text-[10px] font-medium tracking-[0.2em] text-muted-foreground uppercase">
             Timer
           </span>
@@ -602,7 +633,6 @@ export function TableRoomPage() {
             {showTimer ? `${secondsLeft}s` : '—'}
           </span>
         </div>
-        <PlayerWalletBadge />
         <RoomConnectionStatus />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -623,6 +653,11 @@ export function TableRoomPage() {
                 </span>
               </div>
             </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <div className="flex items-center justify-between gap-4 px-2 py-1.5">
+              <span className="text-xs text-muted-foreground">Wallet balance</span>
+              <PlayerWalletBadge />
+            </div>
             <DropdownMenuSeparator />
             <DropdownMenuItem disabled>
               <MessageCircleIcon />
@@ -658,17 +693,17 @@ export function TableRoomPage() {
           <Loader2Icon className="size-6 animate-spin text-muted-foreground" />
         ) : (
           <div
-            className="relative h-[690px] w-[412px]"
-            style={{ zoom: tableZoom }}
+            className={`club-poker-stage relative ${wideTable ? 'is-wide' : compactTable ? 'is-compact' : 'is-portrait'}`}
+            style={{ zoom: tableZoom, width: wideTable ? 900 : compactTable ? 360 : 412, height: wideTable ? 520 : compactTable ? 320 : 690, flexShrink: 0 }}
           >
             {/* Felt */}
             <div
               className="poker-felt absolute rounded-full border-[10px] border-black/60 shadow-[inset_0_0_60px_rgba(0,0,0,0.45),0_20px_60px_rgba(0,0,0,0.5)]"
               style={{
-                left: '15.8%',
-                top: '14.9%',
-                width: '68.7%',
-                height: '73.3%',
+                left: wideTable ? '10%' : '15.8%',
+                top: wideTable ? '17%' : '14.9%',
+                width: wideTable ? '80%' : '68.7%',
+                height: wideTable ? '66%' : '73.3%',
               }}
             />
 
@@ -678,11 +713,7 @@ export function TableRoomPage() {
                 data-testid="dealer-chip"
                 data-seat={game.dealerSeat}
                 className="absolute z-20 flex size-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-black/30 bg-white text-[10px] font-bold text-black shadow"
-                style={seatCornerPosition(
-                  game.dealerSeat,
-                  table.maxSeats,
-                  'left',
-                )}
+                style={wideTable ? wideSeatPosition(game.dealerSeat, table.maxSeats, 'left') : compactTable ? compactSeatPosition(game.dealerSeat, table.maxSeats, 'left') : seatCornerPosition(game.dealerSeat, table.maxSeats, 'left')}
               >
                 D
               </div>
@@ -704,7 +735,7 @@ export function TableRoomPage() {
                     data-testid={`blind-${label.toLowerCase()}`}
                     data-seat={seat}
                     className="absolute z-20 flex h-4 min-w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-black/30 bg-white px-1 text-[9px] font-bold text-black shadow"
-                    style={seatCornerPosition(seat, table.maxSeats, 'right')}
+                    style={wideTable ? wideSeatPosition(seat, table.maxSeats, 'right') : compactTable ? compactSeatPosition(seat, table.maxSeats, 'right') : seatCornerPosition(seat, table.maxSeats, 'right')}
                   >
                     {label}
                   </div>
@@ -799,7 +830,7 @@ export function TableRoomPage() {
               return (
                 <PokerSeat
                   key={index}
-                  style={seatPosition(index, table.maxSeats)}
+                  style={wideTable ? wideSeatPosition(index, table.maxSeats) : compactTable ? compactSeatPosition(index, table.maxSeats) : seatPosition(index, table.maxSeats)}
                   isYou={isYou}
                   player={
                     seat
@@ -832,6 +863,11 @@ export function TableRoomPage() {
           className="mx-auto flex w-full max-w-[420px] flex-col gap-3"
           data-testid="controls"
         >
+          <div className="club-room-summary">
+            <p className="club-invitation">YOUR SEAT AT THE CLUB</p>
+            <h2>{isWaiting ? 'Make yourself at home.' : isMyTurn ? 'Your move.' : 'Read the table.'}</h2>
+            <dl><div><dt>Your stack</dt><dd>{formatMoney(mySeat?.stack ?? 0)}</dd></div><div><dt>Blinds</dt><dd>{blindsLabel || '—'}</dd></div><div><dt>At the table</dt><dd>{seats.length} / {table?.maxSeats ?? '—'}</dd></div></dl>
+          </div>
           {!isWaiting && (
             <>
               <div className="flex items-center justify-between text-sm">
@@ -863,7 +899,7 @@ export function TableRoomPage() {
               {mySeat?.ready ? 'Ready — waiting for the others' : 'Ready'}
             </Button>
           ) : (
-            <div className="grid grid-cols-4 gap-2 room-side:grid-cols-2">
+            <div className="club-betting-actions grid grid-cols-4 gap-2 room-side:grid-cols-2">
               <Button
                 variant="outline"
                 disabled={!isMyTurn || pending}

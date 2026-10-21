@@ -1,42 +1,16 @@
 import { useCallback, useEffect, useState } from 'react'
 import { BotOffIcon } from 'lucide-react'
-import { GameReel } from '@/components/game-reel'
+import { ClubHome } from '@/components/club-home'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { gamesApi, getApiErrorMessage } from '@/lib/api'
 import type { Game } from '@/lib/types'
 
-/**
- * Home is the game reel and nothing else: the catalog as a coverflow of
- * stills, with a cue sheet to pick from. Everything about a game shows up
- * once its still is open (detail view), so the page stays one screen tall.
- */
+/** The club invitation and live game catalog share one viewport. */
 export function HomePage() {
   const [games, setGames] = useState<Game[] | null>(null)
   const [error, setError] = useState<string | null>(null)
-
-  // The reel owns the whole screen: while home is mounted the document itself
-  // must not scroll (no wheel drift, no rubber-band bounce, no scrollbar).
-  useEffect(() => {
-    const { documentElement, body } = document
-    const before = {
-      htmlOverflow: documentElement.style.overflow,
-      htmlOverscroll: documentElement.style.overscrollBehavior,
-      bodyOverflow: body.style.overflow,
-      bodyOverscroll: body.style.overscrollBehavior,
-    }
-    documentElement.style.overflow = 'hidden'
-    documentElement.style.overscrollBehavior = 'none'
-    body.style.overflow = 'hidden'
-    body.style.overscrollBehavior = 'none'
-    return () => {
-      documentElement.style.overflow = before.htmlOverflow
-      documentElement.style.overscrollBehavior = before.htmlOverscroll
-      body.style.overflow = before.bodyOverflow
-      body.style.overscrollBehavior = before.bodyOverscroll
-    }
-  }, [])
 
   const fetchGames = useCallback(() => {
     gamesApi
@@ -100,14 +74,14 @@ export function HomePage() {
     )
   }
 
-  return <GameReel games={games} />
+  return <ClubHome games={games} />
 }
 
 /** Page frame for the loading / error / empty states. */
 function ReelShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="relative flex h-[calc(100dvh-var(--nav-offset))] flex-col overflow-hidden overscroll-none">
-      <div className="mx-auto w-full max-w-5xl shrink-0 px-4 pt-6 sm:pt-8">
+    <div className="relative flex min-h-[calc(100dvh-var(--nav-offset))] flex-col">
+      <div className="site-page-container shrink-0 pt-6 sm:pt-8">
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
           Games
         </h1>

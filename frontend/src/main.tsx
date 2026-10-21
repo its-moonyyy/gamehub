@@ -4,6 +4,8 @@ import { BrowserRouter } from 'react-router-dom'
 import { AuthProvider } from '@/lib/auth-context'
 import { App } from './App.tsx'
 import './index.css'
+import '@fontsource-variable/bricolage-grotesque'
+import './club.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

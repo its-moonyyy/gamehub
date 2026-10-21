@@ -204,7 +204,7 @@ export function ProfilePage() {
   if (!user) return null
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-4 px-4 py-8">
+    <div className="site-page-container space-y-4 py-8">
       <Card>
         <CardContent className="flex flex-col items-start gap-5 sm:flex-row sm:items-center">
           <Avatar className="size-16">

@@ -67,7 +67,7 @@ export function RegisterPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-md px-4 py-12">
+    <div className="site-page-container flex justify-center py-12">
       <Card>
         <CardHeader>
           <CardTitle>Create your account</CardTitle>

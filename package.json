@@ -17,6 +17,7 @@
     "concurrently": "^9.1.2"
   },
   "dependencies": {
+    "liquid-glass-react": "^1.1.1",
     "motion": "^14.4.0"
   }
 }

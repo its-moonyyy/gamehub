@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
-import { BotOffIcon, Loader2Icon, PlayIcon, PlusIcon, UsersIcon } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Loader2Icon, PlayIcon, PlusIcon, UsersIcon } from 'lucide-react'
 import { motion } from 'motion/react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -25,6 +25,21 @@ export function TablesLobby({ game }: { game: Game }) {
   const [joiningId, setJoiningId] = useState<number | null>(null)
   const [pendingTable, setPendingTable] = useState<TableSummary | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
+
+  const listRef = useRef<HTMLDivElement>(null)
+  const [pageSize, setPageSize] = useState(4)
+  const [page, setPage] = useState(0)
+  const [filter, setFilter] = useState<'all' | 'open' | 'mine'>('all')
+  useEffect(() => {
+    const element = listRef.current
+    if (!element) return
+    const observer = new ResizeObserver(() => setPageSize(Math.max(1, Math.floor(element.clientHeight / 100))))
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
+  const filtered = (tables ?? []).filter(table => filter === 'all' || (filter === 'open' ? table.seatedCount < table.maxSeats : table.seatedUserIds.includes(user?.id ?? -1)))
+  const pages = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const currentPage = Math.min(page, pages - 1)
 
   const fetchTables = useCallback(
     (quiet = false) => {
@@ -100,13 +115,10 @@ export function TablesLobby({ game }: { game: Game }) {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="club-tables flex min-h-0 flex-1 flex-col">
       {/* Toolbar */}
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 px-4 py-3">
-        <p className="flex items-center gap-2 text-sm text-muted-foreground">
-          <BotOffIcon className="size-4" />
-          Open tables — every seat is a real player
-        </p>
+      <div className="club-tables-toolbar">
+        <div><p className="club-invitation">THE CLUB ROOM</p><h2>Find your table.</h2><p className="club-tables-subtitle">Pull up a seat. The next hand is yours.</p></div>
         <div className="flex items-center gap-2">
           <Button size="sm" variant="outline" onClick={() => setCreateOpen(true)}>
             <PlusIcon /> Create table
@@ -118,7 +130,11 @@ export function TablesLobby({ game }: { game: Game }) {
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4">
+      <div className="club-table-filters" aria-label="Filter tables">
+        {(['all', 'open', 'mine'] as const).map(value => <Button key={value} variant="ghost" size="sm" aria-pressed={filter === value} onClick={() => { setFilter(value); setPage(0) }}>{value === 'all' ? 'All tables' : value === 'open' ? 'Open seats' : 'Your tables'}</Button>)}
+        <span>{filtered.length} {filtered.length === 1 ? 'table' : 'tables'}</span>
+      </div>
+      <div ref={listRef} className="club-table-list min-h-0 flex-1 overflow-hidden">
         {error && !tables ? (
           <div className="flex min-h-full items-center justify-center py-6">
             <Card className="w-full max-w-md">
@@ -137,17 +153,17 @@ export function TablesLobby({ game }: { game: Game }) {
             </Card>
           </div>
         ) : tables === null ? (
-          <div className="flex flex-col gap-3 py-3">
+          <div className="flex flex-col gap-3">
             <Skeleton className="h-[76px] rounded-xl" />
             <Skeleton className="h-[76px] rounded-xl" />
           </div>
-        ) : tables.length === 0 ? (
+        ) : filtered.length === 0 ? (
           <div className="flex min-h-full items-center justify-center py-6">
             <Card className="w-full max-w-md">
               <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
                 <UsersIcon className="size-8 text-muted-foreground" />
                 <div>
-                  <p className="font-medium">No open tables yet</p>
+                  <p className="font-medium">No tables here yet</p>
                   <p className="text-sm text-muted-foreground">
                     Create the first one — friends on other devices can join
                     it in seconds.
@@ -161,8 +177,8 @@ export function TablesLobby({ game }: { game: Game }) {
             </Card>
           </div>
         ) : (
-          <div className="flex flex-col gap-3 py-3">
-            {tables.map((table) => (
+          <div className="flex flex-col gap-3">
+            {filtered.slice(currentPage * pageSize, (currentPage + 1) * pageSize).map((table) => (
               <TableRow
                 key={table.id}
                 table={table}
@@ -175,6 +191,7 @@ export function TablesLobby({ game }: { game: Game }) {
         )}
       </div>
 
+      <div className="club-table-pagination"><span>Every seat is a real player.</span><div><Button variant="ghost" size="sm" aria-label="Previous table page" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>←</Button><span aria-live="polite">{currentPage + 1} / {pages}</span><Button variant="ghost" size="sm" aria-label="Next table page" disabled={currentPage + 1 >= pages} onClick={() => setPage(currentPage + 1)}>→</Button></div></div>
       <Dialog open={pendingTable !== null} onOpenChange={(open) => { if (!open && joiningId === null) setPendingTable(null) }}>
         <DialogContent>
           <DialogHeader>
@@ -223,7 +240,7 @@ function TableRow({ table, currentUserId, joining, onJoin }: TableRowProps) {
   const label = full && !seated ? 'Full' : seated ? 'Rejoin' : 'Join'
 
   return (
-    <Card>
+    <Card className="club-table-row">
       <CardContent className="flex items-center gap-3 py-4">
         <Avatar className="size-10">
           <AvatarFallback className="text-xs">

@@ -252,7 +252,7 @@ export function FriendsPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-4 px-4 py-8">
+    <div className="site-page-container space-y-4 py-8">
       <div className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight">Friends</h1>
         <p className="text-sm text-muted-foreground">

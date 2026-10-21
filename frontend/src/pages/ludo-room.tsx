@@ -158,7 +158,7 @@ export function LudoRoomPage() {
   const legal = game?.legal ?? null
   const isMyTurn = isPlaying && legal != null
 
-  // Scale the whole room down to fit: board, seats and legend shrink together.
+  // Scale the board, seats and legend together to use the available room area.
   useLayoutEffect(() => {
     const area = areaRef.current
     if (!area) return
@@ -168,7 +168,7 @@ export function LudoRoomPage() {
       setBoardZoom(
         Math.max(
           0.2,
-          Math.min(width / DESIGN_WIDTH, height / DESIGN_HEIGHT, 1.3),
+          Math.min(width / DESIGN_WIDTH, height / DESIGN_HEIGHT, 1.8),
         ),
       )
     }
@@ -354,7 +354,7 @@ export function LudoRoomPage() {
   const moveHint = isMyTurn && legal != null && legal.dice != null
 
   return (
-    <div data-game="ludo" className="grid h-[100dvh] grid-cols-1 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-background room-side:grid-cols-[minmax(0,1fr)_minmax(240px,46%)] room-side:grid-rows-[auto_minmax(0,1fr)]">
+    <div data-game="ludo" className="glass-game-shell grid h-[100dvh] grid-cols-1 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-background room-side:grid-cols-[minmax(0,1fr)_minmax(240px,46%)] room-side:grid-rows-[auto_minmax(0,1fr)]">
       {/* Top bar */}
       <div className="room-topbar flex shrink-0 items-center gap-2 border-b bg-card px-3 py-2.5 room-side:col-span-2">
         <Button variant="ghost" size="icon" asChild>
@@ -377,7 +377,6 @@ export function LudoRoomPage() {
             {showTimer ? `${secondsLeft}s` : '—'}
           </span>
         </div>
-        <PlayerWalletBadge />
         <RoomConnectionStatus />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -396,6 +395,11 @@ export function LudoRoomPage() {
                 </span>
               </div>
             </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <div className="flex items-center justify-between gap-4 px-2 py-1.5">
+              <span className="text-xs text-muted-foreground">Wallet balance</span>
+              <PlayerWalletBadge />
+            </div>
             <DropdownMenuSeparator />
             <DropdownMenuItem disabled>
               <MessageCircleIcon />

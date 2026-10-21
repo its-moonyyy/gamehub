@@ -4,7 +4,7 @@ import { PlayerWalletBadge } from '@/components/player-wallet-badge'
 import { Link, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { TablesLobby } from '@/components/tables-lobby'
-import { Badge } from '@/components/ui/badge'
+import { GameStill } from '@/components/game-still'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -16,7 +16,6 @@ import {
 } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { gamesApi, getApiErrorMessage, getApiStatus } from '@/lib/api'
-import { FALLBACK_GAME_ICON, GAME_ICONS } from '@/lib/game-icons'
 import type { Game } from '@/lib/types'
 import { NotFoundPage } from './not-found'
 
@@ -47,40 +46,35 @@ export function GamePage() {
     return <NotFoundPage />
   }
 
-  const Icon = game ? (GAME_ICONS[game.icon] ?? FALLBACK_GAME_ICON) : null
-
   return (
-    <div data-game={game?.slug} className="flex h-[100dvh] flex-col overflow-hidden bg-background">
+    <div data-game={game?.slug} className="club-lobby glass-game-shell flex h-[100dvh] flex-col overflow-hidden">
       {/* App bar — always visible, the page itself never scrolls */}
-      <div className="mx-auto flex w-full max-w-3xl shrink-0 items-center gap-2 border-b px-3 py-2.5">
+      <div className="glass-game-header club-lobby-topbar flex w-full shrink-0 items-center gap-3">
         <Button variant="ghost" size="icon" asChild>
           <Link to="/" aria-label="Back to all games">
             <ArrowLeftIcon />
           </Link>
         </Button>
-        <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
-          {game && Icon ? (
-            <>
-              <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <Icon className="size-4" />
-              </span>
-              <span className="truncate text-base font-semibold">
-                {game.name}
-              </span>
-              <Badge
-                variant={game.status === 'available' ? 'default' : 'secondary'}
-              >
-                {game.status === 'available' ? 'Live' : 'Soon'}
-              </Badge>
-            </>
-          ) : (
-            <span className="text-sm text-muted-foreground">Game</span>
-          )}
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          
         </div>
         <PlayerWalletBadge />
       </div>
 
-      <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col">
+      <div className="club-lobby-shell">
+        {game && (
+          <aside className="club-lobby-aside">
+            <div className="club-lobby-art"><GameStill slug={game.slug} icon={game.icon} /></div>
+            <div className="club-lobby-game-copy">
+              <p className="club-invitation">A little friendly competition</p>
+              <h1>{game.name}</h1>
+              <p>{game.description}</p>
+              <div className="club-lobby-facts"><span>{game.players} players</span><span>No bots. Ever.</span></div>
+            </div>
+            <p className="club-lobby-aside-note">Bring your friends.<br />Make it a regular thing.</p>
+          </aside>
+        )}
+        <div className="club-lobby-workspace">
         {error ? (
           <div className="flex min-h-0 flex-1 items-center justify-center px-4">
             <Card className="w-full max-w-md">
@@ -105,12 +99,13 @@ export function GamePage() {
             <Skeleton className="h-20 rounded-xl" />
           </div>
         ) : game.status === 'available' ? (
-          <TablesLobby game={game} />
+          <TablesLobby key={game.slug} game={game} />
         ) : (
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-8">
             <ComingSoonCard game={game} />
           </div>
         )}
+        </div>
       </div>
     </div>
   )

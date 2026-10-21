@@ -38,7 +38,7 @@ interface PokerSeatProps {
 
 export function PokerSeat({ style, player, isYou }: PokerSeatProps) {
   const base =
-    'absolute flex aspect-[104/140] w-[25.2%] flex-col items-center justify-center gap-1.5 rounded-2xl p-2 text-center shadow-lg'
+    'club-poker-seat absolute flex aspect-[104/140] w-[25.2%] flex-col items-center justify-center gap-1.5 rounded-2xl p-2 text-center shadow-lg'
 
   if (!player) {
     return (

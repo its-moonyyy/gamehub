@@ -4,7 +4,7 @@ import { Card, CardContent } from '@/components/ui/card'
 
 export function NotFoundPage() {
   return (
-    <div className="mx-auto w-full max-w-md px-4 py-24">
+    <div className="site-page-container flex justify-center py-24">
       <Card>
         <CardContent className="flex flex-col items-center gap-4 py-10 text-center">
           <p className="text-4xl font-bold tracking-tight">404</p>

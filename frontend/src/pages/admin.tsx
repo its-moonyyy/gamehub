@@ -73,6 +73,7 @@ export function AdminPage() {
   const amountInput = useRef<HTMLInputElement>(null)
   const passwordInput = useRef<HTMLInputElement>(null)
   const confirmPasswordInput = useRef<HTMLInputElement>(null)
+  const requestsLoading = useRef(false)
 
   useEffect(() => {
     if (!isValidPhone(query)) return
@@ -113,15 +114,23 @@ export function AdminPage() {
   }, [loadAdjustments])
 
   const loadRequests = useCallback(() => {
-    adminApi.walletRequests().then((result) => {
+    if (requestsLoading.current) return
+    requestsLoading.current = true
+    return adminApi.walletRequests().then((result) => {
       setWalletRequests(result)
       setRequestsError('')
     }).catch((error: unknown) => {
       setRequestsError(getApiErrorMessage(error, 'Unable to load pending requests.'))
+    }).finally(() => {
+      requestsLoading.current = false
     })
   }, [])
 
-  useEffect(() => { loadRequests() }, [loadRequests])
+  useEffect(() => {
+    void loadRequests()
+    const interval = window.setInterval(() => void loadRequests(), 1000)
+    return () => window.clearInterval(interval)
+  }, [loadRequests])
 
   async function reviewRequest(request: WalletRequestInfo, decision: 'accept' | 'decline') {
     setReviewingId(request.id)
@@ -260,7 +269,7 @@ export function AdminPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-6 px-4 py-8">
+    <div className="site-page-container space-y-6 py-8">
       <header className="space-y-2">
         <Badge variant="secondary" className="gap-1.5">
           <ShieldIcon className="size-3.5" /> Admin only

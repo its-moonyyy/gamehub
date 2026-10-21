@@ -35,7 +35,7 @@ function SiteLayout() {
         <Outlet />
       </main>
       {withFooter && (
-        <footer className="border-t py-6 text-center text-xs text-muted-foreground">
+        <footer className="site-page-container border-t py-6 text-center text-xs text-muted-foreground">
           GameHub — play with real people. Virtual credits only.
         </footer>
       )}

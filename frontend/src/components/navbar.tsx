@@ -2,12 +2,13 @@ import {
   LogOutIcon,
   ShieldIcon,
   SettingsIcon,
-  SpadeIcon,
+  ClubIcon,
   UserRoundIcon,
   UsersIcon,
   WalletIcon,
 } from 'lucide-react'
 import { motion } from 'motion/react'
+import LiquidGlass from 'liquid-glass-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -38,25 +39,45 @@ export function Navbar() {
     navigate('/')
   }
   return (
-    <header className="sticky top-0 z-50 bg-gradient-to-b from-background via-background/80 to-transparent px-5 pt-3 pb-2 sm:px-8">
+    <header className="club-site-header sticky top-0 z-50">
       <motion.div
-        initial={{ y: -14, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ type: 'spring', stiffness: 380, damping: 32 }}
-        className="mx-auto flex h-14 w-full max-w-5xl items-center justify-between gap-3 rounded-full border bg-background/70 pr-1.5 pl-2 shadow-lg shadow-black/5 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60 dark:shadow-black/40"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.16, ease: 'easeOut' }}
+        className="glass-navbar club-navbar mx-auto flex items-center justify-between gap-3"
       >
+        <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-full" aria-hidden="true">
+          <LiquidGlass
+            className="nav-glass-lens"
+            style={{ position: 'absolute', top: '50%', left: '50%', width: '100%', height: '100%' }}
+            padding="0px"
+            cornerRadius={999}
+            displacementScale={24}
+            blurAmount={0.12}
+            saturation={145}
+            aberrationIntensity={0.5}
+            elasticity={0}
+          >
+            <span className="block h-14 w-full" />
+          </LiquidGlass>
+        </div>
         <Link
           to="/"
-          className="flex items-center gap-2 text-base font-semibold tracking-tight"
+          className="club-wordmark relative z-10 flex items-center gap-2"
         >
-          <span className="flex size-8 items-center justify-center rounded-full bg-primary text-primary-foreground">
-            <SpadeIcon className="size-4" />
+          <span className="club-brand-symbol flex items-center justify-center">
+            <ClubIcon className="size-5" />
           </span>
           {SITE_NAME}
         </Link>
 
+        <nav className="club-nav-links relative z-10" aria-label="Main navigation">
+          <Button variant="ghost" asChild><Link to="/">The games</Link></Button>
+          <Button variant="ghost" asChild><Link to="/friends">Your friends</Link></Button>
+        </nav>
+
         {user ? (
-          <div className="flex items-center gap-2">
+          <div className="relative z-10 flex items-center gap-2">
             {user.role === 'player' && (
               <Badge
                 variant="secondary"
@@ -143,7 +164,7 @@ export function Navbar() {
             </DropdownMenu>
           </div>
         ) : (
-          <div className="flex items-center gap-1.5">
+          <div className="relative z-10 flex items-center gap-1.5">
             <Button variant="ghost" size="sm" className="rounded-full" asChild>
               <Link to="/login">Log in</Link>
             </Button>
