@@ -26,6 +26,18 @@ export interface AdminAdjustmentInfo {
   createdAt: string
 }
 
+export interface WalletRequestInfo {
+  id: number
+  userId: number
+  phoneNumber: string
+  displayName: string
+  kind: 'deposit' | 'withdrawal'
+  amountCents: number
+  status: 'pending' | 'accepted' | 'declined'
+  createdAt: string
+  reviewedAt: string | null
+}
+
 export type GameStatus = 'available' | 'coming_soon'
 
 export interface Game {

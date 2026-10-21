@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { toast } from 'sonner'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -20,12 +21,14 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
+import { Field, FieldLabel } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { getApiErrorMessage, usersApi } from '@/lib/api'
+import { getApiErrorMessage, usersApi, walletApi } from '@/lib/api'
 import { useAuth } from '@/lib/auth-context'
 import { formatMoney, initials } from '@/lib/format'
 import { FALLBACK_GAME_ICON, GAME_ICONS } from '@/lib/game-icons'
-import type { GameResult, SeatedTableSummary, UserStats } from '@/lib/types'
+import type { GameResult, SeatedTableSummary, UserStats, WalletRequestInfo } from '@/lib/types'
 
 /** The stats endpoint sends game slugs; the catalog keys icons per game. */
 const GAME_ICON_BY_SLUG: Record<string, LucideIcon> = {
@@ -131,6 +134,48 @@ export function ProfilePage() {
   const [stats, setStats] = useState<UserStats | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
+  const [requests, setRequests] = useState<WalletRequestInfo[] | null>(null)
+  const [requestsError, setRequestsError] = useState('')
+  const [requestKind, setRequestKind] = useState<WalletRequestInfo['kind']>('deposit')
+  const [requestAmount, setRequestAmount] = useState('')
+  const [requestAmountError, setRequestAmountError] = useState('')
+  const [requestSubmitting, setRequestSubmitting] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    walletApi.requests().then((result) => {
+      if (!cancelled) { setRequests(result); setRequestsError('') }
+    }).catch((err: unknown) => {
+      if (!cancelled) setRequestsError(getApiErrorMessage(err, 'Could not load your requests.'))
+    })
+    return () => { cancelled = true }
+  }, [reloadKey])
+
+  async function submitRequest(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const value = requestAmount.trim()
+    const cents = /^\d+(?:\.\d{1,2})?$/.test(value) ? Math.round(Number(value) * 100) : NaN
+    if (!Number.isSafeInteger(cents) || cents < 1 || cents > 100_000_000) {
+      setRequestAmountError('Enter $0.01 to $1,000,000.00 with up to two decimals.')
+      return
+    }
+    if (requestKind === 'withdrawal' && user && cents > user.balance) {
+      setRequestAmountError('This exceeds your current balance.')
+      return
+    }
+    setRequestSubmitting(true)
+    try {
+      const created = await walletApi.createRequest(requestKind, cents)
+      setRequests((current) => [created, ...(current ?? [])].slice(0, 20))
+      setRequestAmount('')
+      setRequestAmountError('')
+      toast.success('Request sent to the administrator for review.')
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Could not send your request.'))
+    } finally {
+      setRequestSubmitting(false)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -217,6 +262,37 @@ export function ProfilePage() {
           )}
         </StatTile>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Credit requests</CardTitle>
+          <CardDescription>Propose a deposit or withdrawal. Your balance changes only after an administrator accepts it.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <form onSubmit={(event) => void submitRequest(event)} className="space-y-3">
+            <div className="flex gap-2">
+              <Button type="button" variant={requestKind === 'deposit' ? 'default' : 'outline'} aria-pressed={requestKind === 'deposit'} onClick={() => { setRequestKind('deposit'); setRequestAmountError('') }}>Deposit</Button>
+              <Button type="button" variant={requestKind === 'withdrawal' ? 'default' : 'outline'} aria-pressed={requestKind === 'withdrawal'} onClick={() => { setRequestKind('withdrawal'); setRequestAmountError('') }}>Withdraw</Button>
+            </div>
+            <Field data-invalid={Boolean(requestAmountError)}>
+              <FieldLabel htmlFor="request-amount">Amount ($)</FieldLabel>
+              <Input id="request-amount" type="text" inputMode="decimal" placeholder="25.00" value={requestAmount} onChange={(event) => { setRequestAmount(event.target.value); setRequestAmountError('') }} aria-invalid={Boolean(requestAmountError)} aria-describedby={requestAmountError ? 'request-amount-error' : undefined} />
+              {requestAmountError && <p id="request-amount-error" role="alert" className="text-sm text-destructive">{requestAmountError}</p>}
+            </Field>
+            <Button type="submit" disabled={requestSubmitting}>{requestSubmitting ? 'Sending…' : `Request ${requestKind}`}</Button>
+          </form>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-sm font-medium">Recent requests</h3>
+              <Button size="sm" variant="outline" onClick={() => setReloadKey((key) => key + 1)}>Refresh</Button>
+            </div>
+            {requestsError ? <p role="alert" className="text-sm text-destructive">{requestsError} <Button size="sm" variant="outline" onClick={() => setReloadKey((key) => key + 1)}>Try again</Button></p>
+              : requests === null ? <Skeleton className="h-12 rounded-xl" />
+              : requests.length === 0 ? <p className="text-sm text-muted-foreground">No requests yet.</p>
+              : <ul className="space-y-2">{requests.map((request) => <li key={request.id} className="flex items-center justify-between gap-3 rounded-xl border p-3 text-sm"><span>{request.kind === 'deposit' ? 'Deposit' : 'Withdrawal'} · {formatMoney(request.amountCents)}</span><Badge variant={request.status === 'accepted' ? 'default' : 'secondary'} className="capitalize">{request.status}</Badge></li>)}</ul>}
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

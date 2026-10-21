@@ -14,6 +14,7 @@ import type {
   UnoColor,
   User,
   UserProfile,
+  WalletRequestInfo,
 } from './types'
 
 const TOKEN_KEY = 'gamehub_token'
@@ -129,6 +130,16 @@ export const authApi = {
 }
 
 export const adminApi = {
+  async walletRequests(): Promise<WalletRequestInfo[]> {
+    const { data } = await api.get<WalletRequestInfo[]>('/admin/wallet-requests')
+    return data
+  },
+
+  async reviewWalletRequest(id: number, decision: 'accept' | 'decline'): Promise<WalletRequestInfo> {
+    const { data } = await api.post<WalletRequestInfo>(`/admin/wallet-requests/${id}/${decision}`)
+    return data
+  },
+
   async users(query = ''): Promise<AdminUserInfo[]> {
     const { data } = await api.get<AdminUserInfo[]>('/admin/users', {
       params: { q: query },
@@ -159,6 +170,18 @@ export const adminApi = {
 
   async resetPassword(userId: number, newPassword: string): Promise<void> {
     await api.post(`/admin/users/${userId}/password-reset`, { newPassword })
+  },
+}
+
+export const walletApi = {
+  async requests(): Promise<WalletRequestInfo[]> {
+    const { data } = await api.get<WalletRequestInfo[]>('/wallet/requests')
+    return data
+  },
+
+  async createRequest(kind: WalletRequestInfo['kind'], amountCents: number): Promise<WalletRequestInfo> {
+    const { data } = await api.post<WalletRequestInfo>('/wallet/requests', { kind, amountCents })
+    return data
   },
 }
 

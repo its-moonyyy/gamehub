@@ -4,7 +4,7 @@ import { motion, useReducedMotion } from 'motion/react'
 import { toast } from 'sonner'
 import { adminApi, getApiErrorMessage } from '@/lib/api'
 import { formatMoney, isValidPhone } from '@/lib/format'
-import type { AdminAdjustmentInfo, AdminUserInfo } from '@/lib/types'
+import type { AdminAdjustmentInfo, AdminUserInfo, WalletRequestInfo } from '@/lib/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -53,6 +53,9 @@ export function AdminPage() {
   const [users, setUsers] = useState<AdminUserInfo[] | null>(null)
   const [selected, setSelected] = useState<AdminUserInfo | null>(null)
   const [adjustments, setAdjustments] = useState<AdminAdjustmentInfo[] | null>(null)
+  const [walletRequests, setWalletRequests] = useState<WalletRequestInfo[] | null>(null)
+  const [requestsError, setRequestsError] = useState('')
+  const [reviewingId, setReviewingId] = useState<number | null>(null)
   const [adjustmentType, setAdjustmentType] = useState<'credit' | 'withdraw'>('credit')
   const [amount, setAmount] = useState('')
   const [amountError, setAmountError] = useState('')
@@ -108,6 +111,45 @@ export function AdminPage() {
   useEffect(() => {
     loadAdjustments()
   }, [loadAdjustments])
+
+  const loadRequests = useCallback(() => {
+    adminApi.walletRequests().then((result) => {
+      setWalletRequests(result)
+      setRequestsError('')
+    }).catch((error: unknown) => {
+      setRequestsError(getApiErrorMessage(error, 'Unable to load pending requests.'))
+    })
+  }, [])
+
+  useEffect(() => { loadRequests() }, [loadRequests])
+
+  async function reviewRequest(request: WalletRequestInfo, decision: 'accept' | 'decline') {
+    setReviewingId(request.id)
+    try {
+      await adminApi.reviewWalletRequest(request.id, decision)
+      setWalletRequests((current) => current?.filter((item) => item.id !== request.id) ?? null)
+      if (decision === 'accept') {
+        loadAdjustments()
+        if (selected?.id === request.userId) {
+          adminApi.users(request.phoneNumber).then(([updated]) => {
+            if (updated) {
+              setSelected((current) => current?.id === updated.id ? updated : current)
+              setUsers((current) => current?.map((user) => user.id === updated.id ? updated : user) ?? null)
+            }
+          }).catch(() => {
+            setSelected((current) => current?.id === request.userId ? null : current)
+            setReloadKey((key) => key + 1)
+          })
+        }
+      }
+      toast.success(`Request ${decision === 'accept' ? 'accepted' : 'declined'}.`)
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Unable to review this request.'))
+      loadRequests()
+    } finally {
+      setReviewingId(null)
+    }
+  }
 
   function clearActionForms() {
     setPendingAdjustment(null)
@@ -228,6 +270,33 @@ export function AdminPage() {
           Find a player by phone number to adjust virtual credits or reset their password.
         </p>
       </header>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle>Pending credit requests</CardTitle>
+            <Button size="sm" variant="outline" onClick={loadRequests}>Refresh</Button>
+          </div>
+          <CardDescription>Review player deposit and withdrawal proposals. Accepting one applies the balance change.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {requestsError ? <div className="space-y-2"><p role="alert" className="text-sm text-destructive">{requestsError}</p><Button size="sm" variant="outline" onClick={loadRequests}>Try again</Button></div>
+            : walletRequests === null ? <Skeleton className="h-16 rounded-xl" />
+            : walletRequests.length === 0 ? <p className="text-sm text-muted-foreground">No pending requests.</p>
+            : <ul className="space-y-3">{walletRequests.map((request) => (
+              <li key={request.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3">
+                <div className="min-w-0">
+                  <p className="font-medium">{request.displayName} <span className="text-sm font-normal text-muted-foreground">{request.phoneNumber}</span></p>
+                  <p className="text-sm text-muted-foreground"><span className="capitalize">{request.kind}</span> · {formatMoney(request.amountCents)} · {new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(request.createdAt))}</p>
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" disabled={reviewingId !== null} onClick={() => void reviewRequest(request, 'decline')}>Decline</Button>
+                  <Button size="sm" disabled={reviewingId !== null} onClick={() => void reviewRequest(request, 'accept')}>Accept</Button>
+                </div>
+              </li>
+            ))}</ul>}
+        </CardContent>
+      </Card>
 
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(18rem,0.8fr)]">
         <Card>
