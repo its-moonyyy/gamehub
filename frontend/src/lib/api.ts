@@ -1,6 +1,8 @@
 import axios from 'axios'
 import type {
   ChessPromotion,
+  AdminCreditInfo,
+  AdminUserInfo,
   DominoesEnd,
   FriendsOverview,
   Game,
@@ -31,7 +33,7 @@ export function setToken(token: string | null): void {
 // In development Vite proxies /api to the NestJS server. In production the
 // frontend is served as a static site, so point it at the deployed API with
 // VITE_API_URL (inlined at build time by Vite).
-const apiBaseUrl = import.meta.env.VITE_API_URL?.replace(/\/$/, '') || '/api'
+export const apiBaseUrl = import.meta.env.VITE_API_URL?.replace(/\/$/, '') || '/api'
 
 export const api = axios.create({ baseURL: apiBaseUrl })
 
@@ -126,6 +128,28 @@ export const authApi = {
   },
 }
 
+export const adminApi = {
+  async users(query = ''): Promise<AdminUserInfo[]> {
+    const { data } = await api.get<AdminUserInfo[]>('/admin/users', {
+      params: { q: query },
+    })
+    return data
+  },
+
+  async credits(): Promise<AdminCreditInfo[]> {
+    const { data } = await api.get<AdminCreditInfo[]>('/admin/credits')
+    return data
+  },
+
+  async credit(userId: number, amountCents: number): Promise<AdminCreditInfo> {
+    const { data } = await api.post<AdminCreditInfo>(
+      `/admin/users/${userId}/credits`,
+      { amountCents },
+    )
+    return data
+  },
+}
+
 export interface UpdateProfileInput {
   displayName?: string
   phoneNumber?: string
@@ -157,10 +181,13 @@ export const gamesApi = {
 }
 
 export interface CreateTableInput {
-  name: string
+  /** Price of one seat in cents; poker uses this as the starting stack. */
+  entryFee: number
   maxSeats?: number
   /** Chess only: an id from CHESS_TIME_CONTROLS, e.g. "3+2". */
   timeControl?: string
+  /** Non-chess games: seconds per player turn. */
+  turnSeconds?: number
   /** In cents, e.g. 100 = $1. */
   smallBlind?: number
   bigBlind?: number
@@ -205,8 +232,8 @@ export const tablesApi = {
     return data
   },
 
-  async join(tableId: number | string): Promise<TableDetails> {
-    const { data } = await api.post<TableDetails>(`/tables/${tableId}/join`)
+  async join(tableId: number | string, entryFee?: number): Promise<TableDetails> {
+    const { data } = await api.post<TableDetails>(`/tables/${tableId}/join`, { entryFee })
     return data
   },
 
@@ -324,8 +351,8 @@ export const invitesApi = {
   },
 
   /** Seats you at the table and closes the invite. */
-  async accept(inviteId: number): Promise<TableDetails> {
-    const { data } = await api.post<TableDetails>(`/invites/${inviteId}/accept`)
+  async accept(inviteId: number, entryFee?: number): Promise<TableDetails> {
+    const { data } = await api.post<TableDetails>(`/invites/${inviteId}/accept`, { entryFee })
     return data
   },
 

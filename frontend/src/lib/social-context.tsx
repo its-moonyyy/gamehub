@@ -12,6 +12,8 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { friendsApi, getApiErrorMessage, invitesApi } from './api'
 import { useAuth } from './auth-context'
+import { subscribeGameEvents } from './game-events'
+import { formatMoney } from './format'
 import type {
   Friend,
   FriendRequestInfo,
@@ -19,8 +21,8 @@ import type {
   TableInvite,
 } from './types'
 
-/** How often the navbar badge and the invite list check for news. */
-const POLL_INTERVAL_MS = 15_000
+/** Slow fallback while the event stream is reconnecting. */
+const POLL_INTERVAL_MS = 30_000
 
 /** Friends, requests and invites as one atom — stamped with whose they are. */
 interface SocialState {
@@ -46,7 +48,7 @@ interface SocialContextValue {
   cancelRequest: (requestId: number) => Promise<void>
   removeFriend: (friendId: number) => Promise<void>
   /** Accepts an invite: seats you, then takes you to the room. */
-  acceptInvite: (inviteId: number) => Promise<void>
+  acceptInvite: (inviteId: number, entryFee: number | null) => Promise<void>
   declineInvite: (inviteId: number) => Promise<void>
 }
 
@@ -58,7 +60,7 @@ const SocialContext = createContext<SocialContextValue | null>(null)
  * toast with a Join button wherever the user happens to be.
  */
 export function SocialProvider({ children }: { children: ReactNode }) {
-  const { user } = useAuth()
+  const { user, refreshUser } = useAuth()
   const navigate = useNavigate()
   const userId = user?.id ?? null
   /**
@@ -75,8 +77,9 @@ export function SocialProvider({ children }: { children: ReactNode }) {
   const current = state && state.userId === userId ? state : null
 
   const acceptInvite = useCallback(
-    async (inviteId: number) => {
-      const details = await invitesApi.accept(inviteId)
+    async (inviteId: number, entryFee: number | null) => {
+      const details = await invitesApi.accept(inviteId, entryFee ?? undefined)
+      void refreshUser().catch(() => {})
       setState((previous) =>
         previous
           ? {
@@ -90,12 +93,12 @@ export function SocialProvider({ children }: { children: ReactNode }) {
       toast.success(`Joined ${details.name}`)
       navigate(`/play/${details.gameSlug}/table/${details.id}`)
     },
-    [navigate],
+    [navigate, refreshUser],
   )
 
   const joinFromToast = useCallback(
     (invite: TableInvite) => {
-      void acceptInvite(invite.id).catch((error: unknown) => {
+      void acceptInvite(invite.id, invite.entryFee).catch((error: unknown) => {
         toast.error(getApiErrorMessage(error, 'Could not join this table.'))
       })
     },
@@ -124,9 +127,9 @@ export function SocialProvider({ children }: { children: ReactNode }) {
         }
         if (fresh) {
           toast(`${fresh.inviterName} invited you to ${fresh.tableName}`, {
-            description: `${fresh.gameName} · ${fresh.seatedCount} of ${fresh.maxSeats} seats taken`,
+            description: `${fresh.gameName} · ${fresh.seatedCount} of ${fresh.maxSeats} seats taken · entry ${fresh.entryFee == null ? 'free' : formatMoney(fresh.entryFee)}`,
             duration: 12_000,
-            action: { label: 'Join', onClick: () => joinFromToast(fresh) },
+            action: { label: fresh.entryFee == null ? 'Join' : `Pay ${formatMoney(fresh.entryFee)}`, onClick: () => joinFromToast(fresh) },
           })
         }
       }
@@ -139,10 +142,14 @@ export function SocialProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!userId) return
     void load()
+    const unsubscribe = subscribeGameEvents((event) => {
+      if (event.kind === 'invite' || event.kind === 'sync') void load()
+    })
     const interval = window.setInterval(() => void load(), POLL_INTERVAL_MS)
     const onFocus = () => void load()
     window.addEventListener('focus', onFocus)
     return () => {
+      unsubscribe()
       window.clearInterval(interval)
       window.removeEventListener('focus', onFocus)
     }

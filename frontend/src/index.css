@@ -125,6 +125,37 @@
     --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* A consistent shadcn surface system, with one recognizable accent per game. */
+[data-game='poker'] { --primary: oklch(0.42 0.09 160); --primary-foreground: oklch(0.99 0 0); --ring: oklch(0.61 0.09 160); }
+[data-game='ludo'] { --primary: oklch(0.46 0.15 35); --primary-foreground: oklch(0.99 0 0); --ring: oklch(0.64 0.12 35); }
+[data-game='dominoes'] { --primary: oklch(0.42 0.11 255); --primary-foreground: oklch(0.99 0 0); --ring: oklch(0.63 0.10 255); }
+[data-game='chess'] { --primary: oklch(0.42 0.08 285); --primary-foreground: oklch(0.99 0 0); --ring: oklch(0.62 0.08 285); }
+[data-game='uno'] { --primary: oklch(0.48 0.18 28); --primary-foreground: oklch(0.99 0 0); --ring: oklch(0.67 0.15 28); }
+
+.dark [data-game='poker'] { --primary: oklch(0.76 0.09 160); --primary-foreground: oklch(0.17 0 0); }
+.dark [data-game='ludo'] { --primary: oklch(0.76 0.13 35); --primary-foreground: oklch(0.17 0 0); }
+.dark [data-game='dominoes'] { --primary: oklch(0.76 0.09 255); --primary-foreground: oklch(0.17 0 0); }
+.dark [data-game='chess'] { --primary: oklch(0.76 0.08 285); --primary-foreground: oklch(0.17 0 0); }
+.dark [data-game='uno'] { --primary: oklch(0.77 0.15 28); --primary-foreground: oklch(0.17 0 0); }
+
+/* Keep the fixed game viewport usable on short phones by giving space back to
+   the interactive board while preserving full-size action buttons. */
+@media (max-height: 700px) and (orientation: portrait) {
+  .room-topbar { padding-block: 6px; }
+  .room-board-area { padding-block: 4px; }
+  .room-controls-panel {
+    padding-top: 8px;
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+}
+
+@media (max-height: 580px) and (orientation: portrait) {
+  [data-testid='ludo-legend'],
+  [data-testid='dominoes-legend'],
+  [data-testid='chess-legend'],
+  [data-testid='uno-legend'] { display: none; }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

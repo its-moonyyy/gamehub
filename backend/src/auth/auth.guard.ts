@@ -1,6 +1,7 @@
 import {
   CanActivate,
   ExecutionContext,
+  ForbiddenException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -9,17 +10,20 @@ import { JwtService } from '@nestjs/jwt';
 import type { Request } from 'express';
 import { UsersService } from '../users/users.service.js';
 import { IS_PUBLIC_KEY } from './public.decorator.js';
+import { ADMIN_ACCESS_KEY, type AdminAccess } from './admin-access.decorator.js';
 
 export interface AuthenticatedUser {
   id: number;
   phoneNumber: string;
   displayName: string;
+  role: 'player' | 'admin';
 }
 
 interface JwtPayload {
   sub: number;
   phoneNumber: string;
   displayName: string;
+  role?: 'admin';
 }
 
 type RequestWithUser = Request & { user?: AuthenticatedUser };
@@ -51,17 +55,41 @@ export class AuthGuard implements CanActivate {
       throw new UnauthorizedException('Missing access token');
     }
 
+    let payload: JwtPayload;
     try {
-      const payload = await this.jwtService.verifyAsync<JwtPayload>(token);
+      payload = await this.jwtService.verifyAsync<JwtPayload>(token);
+    } catch {
+      throw new UnauthorizedException('Invalid or expired access token');
+    }
+
+    const adminAccess = this.reflector.getAllAndOverride<AdminAccess>(
+      ADMIN_ACCESS_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+    if (payload.role === 'admin') {
+      if (payload.sub !== 0) throw new UnauthorizedException();
+      if (!adminAccess) throw new ForbiddenException('Admin access only');
+      request.user = {
+        id: 0,
+        phoneNumber: '',
+        displayName: 'Administrator',
+        role: 'admin',
+      };
+    } else {
+      if (!Number.isSafeInteger(payload.sub) || payload.sub < 1) {
+        throw new UnauthorizedException();
+      }
+      if (adminAccess === 'only') {
+        throw new ForbiddenException('Admin access only');
+      }
       request.user = {
         id: payload.sub,
         phoneNumber: payload.phoneNumber,
         displayName: payload.displayName,
+        role: 'player',
       };
       // Presence heartbeat: fire-and-forget so the request keeps its latency.
       void this.usersService.touch(payload.sub);
-    } catch {
-      throw new UnauthorizedException('Invalid or expired access token');
     }
 
     return true;

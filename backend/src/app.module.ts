@@ -8,6 +8,7 @@ import { FriendsModule } from './friends/friends.module.js';
 import { GamesModule } from './games/games.module.js';
 import { TablesModule } from './tables/tables.module.js';
 import { TasksModule } from './tasks/tasks.module.js';
+import { WalletModule } from './wallet/wallet.module.js';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { TasksModule } from './tasks/tasks.module.js';
     GamesModule,
     TablesModule,
     TasksModule,
+    WalletModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -19,8 +19,8 @@ describe('AppController (e2e)', () => {
     await app.init();
   });
 
-  it('/api (GET) without a token is rejected by the default auth guard', () => {
-    return request(app.getHttpServer()).get('/api').expect(401);
+  it('/api (GET) stays public for the health check', () => {
+    return request(app.getHttpServer()).get('/api').expect(200, 'Hello World!');
   });
 
   it('serves the seeded catalog with complete game copy', async () => {

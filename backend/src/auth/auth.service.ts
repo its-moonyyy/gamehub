@@ -5,6 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import { compare, hash } from 'bcryptjs';
 import { User } from '../users/user.entity.js';
 import {
@@ -16,10 +17,20 @@ import { isUniqueViolation } from '../users/db-errors.js';
 import { ChangePasswordDto } from './dto/change-password.dto.js';
 import { LoginDto } from './dto/login.dto.js';
 import { RegisterDto } from './dto/register.dto.js';
+import type { AuthenticatedUser } from './auth.guard.js';
+
+export interface AdminProfile {
+  id: 0;
+  phoneNumber: '';
+  displayName: 'Administrator';
+  balance: 0;
+  createdAt: Date;
+  role: 'admin';
+}
 
 export interface AuthResult {
   accessToken: string;
-  user: UserProfile;
+  user: UserProfile | AdminProfile;
 }
 
 const BCRYPT_ROUNDS = 10;
@@ -29,6 +40,7 @@ export class AuthService {
   constructor(
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
+    private readonly config: ConfigService,
   ) {}
 
   async register(dto: RegisterDto): Promise<AuthResult> {
@@ -60,6 +72,19 @@ export class AuthService {
   }
 
   async login(dto: LoginDto): Promise<AuthResult> {
+    if (dto.phoneNumber === 'openAdmin') {
+      const passwordHash = this.config.get<string>('ADMIN_PASSWORD_HASH');
+      if (!passwordHash || !(await compare(dto.password, passwordHash))) {
+        throw new UnauthorizedException('Invalid credentials');
+      }
+      return {
+        accessToken: await this.jwtService.signAsync(
+          { sub: 0, role: 'admin' },
+          { expiresIn: '1h' },
+        ),
+        user: this.adminProfile(),
+      };
+    }
     const user = await this.usersService.findByPhoneNumber(dto.phoneNumber);
     if (!user || !(await compare(dto.password, user.passwordHash))) {
       throw new UnauthorizedException('Invalid phone number or password');
@@ -71,8 +96,9 @@ export class AuthService {
     return this.buildAuthResult(user);
   }
 
-  async profile(id: number): Promise<UserProfile> {
-    const user = await this.usersService.findById(id);
+  async profile(account: AuthenticatedUser): Promise<UserProfile | AdminProfile> {
+    if (account.role === 'admin') return this.adminProfile();
+    const user = await this.usersService.findById(account.id);
     if (!user) {
       throw new UnauthorizedException('Account no longer exists');
     }
@@ -111,5 +137,16 @@ export class AuthService {
     });
 
     return { accessToken, user: toProfile(user) };
+  }
+
+  private adminProfile(): AdminProfile {
+    return {
+      id: 0,
+      phoneNumber: '',
+      displayName: 'Administrator',
+      balance: 0,
+      createdAt: new Date(0),
+      role: 'admin',
+    };
   }
 }

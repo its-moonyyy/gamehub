@@ -37,6 +37,7 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { friendsApi, getApiErrorMessage } from '@/lib/api'
 import { FALLBACK_GAME_ICON, GAME_ICONS } from '@/lib/game-icons'
+import { formatMoney } from '@/lib/format'
 import { useSocial } from '@/lib/social-context'
 import type {
   Friend,
@@ -234,7 +235,7 @@ export function FriendsPage() {
     // The context toasts and navigates — this only reports failures.
     setBusy(`join-${invite.id}`)
     try {
-      await acceptInvite(invite.id)
+      await acceptInvite(invite.id, invite.entryFee)
     } catch (error) {
       toast.error(getApiErrorMessage(error, 'Could not join this table.'))
     } finally {
@@ -255,8 +256,8 @@ export function FriendsPage() {
       <div className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight">Friends</h1>
         <p className="text-sm text-muted-foreground">
-          Add players by name or phone number, then pull them into your table
-          when the seats are open.
+          Add players by name or their full phone number, then pull them into
+          your table when the seats are open.
         </p>
       </div>
 
@@ -266,7 +267,7 @@ export function FriendsPage() {
           <CardTitle>Add a player</CardTitle>
           <CardDescription>
             They see your request on their side and can accept it whenever they
-            are around.
+            are around. Phone numbers stay private, even between friends.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -309,7 +310,7 @@ export function FriendsPage() {
                         {result.displayName}
                       </p>
                       <p className="truncate text-xs text-muted-foreground">
-                        {result.phoneNumber}
+                        {result.status === 'online' ? 'Online now' : 'Offline'}
                       </p>
                     </div>
                     {result.relation === 'friends' ? (
@@ -393,6 +394,7 @@ export function FriendsPage() {
                         <p className="truncate text-xs text-muted-foreground">
                           {invite.gameName} · from {invite.inviterName} ·{' '}
                           {invite.seatedCount} of {invite.maxSeats} seats taken
+                          {invite.entryFee != null ? ` · entry ${formatMoney(invite.entryFee)}` : ''}
                         </p>
                       </div>
                       <div className="flex shrink-0 items-center gap-1.5">
@@ -406,7 +408,7 @@ export function FriendsPage() {
                           ) : (
                             <ArrowRightIcon />
                           )}
-                          Join
+                          {invite.entryFee == null ? 'Join' : `Pay ${formatMoney(invite.entryFee)}`}
                         </Button>
                         <Button
                           variant="ghost"
@@ -557,7 +559,6 @@ export function FriendsPage() {
                         {friend.displayName}
                       </p>
                       <p className="truncate text-xs text-muted-foreground">
-                        {friend.phoneNumber} ·{' '}
                         {friend.status === 'online'
                           ? 'Online'
                           : lastSeenLabel(friend.lastSeenAt)}

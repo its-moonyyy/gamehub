@@ -72,6 +72,7 @@ describe('Poker tables (e2e)', () => {
     }).expect(201);
     tokenB = registerB.body.accessToken;
     idB = registerB.body.user.id;
+    await app.get(DataSource).getRepository(User).update({ id: In([idA, idB]) }, { balance: 1_000_000 });
   }, 30_000);
 
   afterAll(async () => {
@@ -94,13 +95,15 @@ describe('Poker tables (e2e)', () => {
     const created = await post('/games/poker/tables', tokenA, {
       name: 'E2E heads-up',
       maxSeats: 2,
+      entryFee: 20_000,
       smallBlind: 100,
       bigBlind: 200,
+      turnSeconds: 90,
     }).expect(201);
     tableId = created.body.id as number;
     expect(created.body.game.phase).toBe('waiting');
 
-    const joined = await post(`/tables/${tableId}/join`, tokenB).expect(201);
+    const joined = await post(`/tables/${tableId}/join`, tokenB, { entryFee: 20_000 }).expect(201);
     expect(joined.body.seats).toHaveLength(2);
     const viewA = await get(`/tables/${tableId}`, tokenA).expect(200);
     expect(
@@ -136,6 +139,9 @@ describe('Poker tables (e2e)', () => {
     ]);
     // Heads-up: the button posts the small blind and acts first.
     expect(dealt.body.game.turnUserId).toBe(idA);
+    const remainingMs = dealt.body.game.turnDeadline - dealt.body.game.serverNow;
+    expect(remainingMs).toBeGreaterThan(89_000);
+    expect(remainingMs).toBeLessThanOrEqual(90_000);
     // The payload names the blind seats and their bets match the blinds.
     const seatAt = (seatIndex: number | null) =>
       dealt.body.seats.find(

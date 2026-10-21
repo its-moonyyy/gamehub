@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ArrowLeftIcon } from 'lucide-react'
+import { PlayerWalletBadge } from '@/components/player-wallet-badge'
 import { Link, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { TablesLobby } from '@/components/tables-lobby'
@@ -49,7 +50,7 @@ export function GamePage() {
   const Icon = game ? (GAME_ICONS[game.icon] ?? FALLBACK_GAME_ICON) : null
 
   return (
-    <div className="flex h-[100dvh] flex-col overflow-hidden bg-background">
+    <div data-game={game?.slug} className="flex h-[100dvh] flex-col overflow-hidden bg-background">
       {/* App bar — always visible, the page itself never scrolls */}
       <div className="mx-auto flex w-full max-w-3xl shrink-0 items-center gap-2 border-b px-3 py-2.5">
         <Button variant="ghost" size="icon" asChild>
@@ -76,7 +77,7 @@ export function GamePage() {
             <span className="text-sm text-muted-foreground">Game</span>
           )}
         </div>
-        <span aria-hidden className="size-9" />
+        <PlayerWalletBadge />
       </div>
 
       <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col">

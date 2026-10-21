@@ -39,8 +39,20 @@ export class Table {
   @Column({ length: 40 })
   name: string;
 
+  /** Unique for generated names; null on tables created before automatic naming. */
+  @Column({ type: 'varchar', length: 8, unique: true, nullable: true })
+  nameCode: string | null;
+
   @Column({ type: 'integer' })
   maxSeats: number;
+
+  /** Price of a seat in cents; null means a legacy free table. */
+  @Column({ type: 'integer', nullable: true })
+  entryFee: number | null;
+
+  /** Per-turn timer for non-chess games; null on legacy and chess tables. */
+  @Column({ type: 'integer', nullable: true })
+  turnSeconds: number | null;
 
   /** Blinds in cents — null for games without stakes (e.g. Ludo). */
   @Column({ type: 'integer', nullable: true })

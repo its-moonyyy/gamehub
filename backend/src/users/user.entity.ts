@@ -19,7 +19,7 @@ export class User {
   @Column({ length: 60 })
   displayName: string;
 
-  /** Balance in cents. Real-money top-ups arrive in a later step. */
+  /** Shared virtual balance in cents; only the admin can mint new credits. */
   @Column({ type: 'integer', default: 0 })
   balance: number;
 

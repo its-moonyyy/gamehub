@@ -92,24 +92,21 @@ export function GameReel({ games }: { games: Game[] }) {
     setRequestedActive(Math.min(Math.max(index, 0), Math.max(games.length - 1, 0)))
   }
 
-  // Arrow keys and Enter/Escape work anywhere on the page, as long as the
-  // focus is not in a text field.
+  // Keep reel shortcuts scoped to the reel. Focused links and buttons retain
+  // their native Enter behavior, and the dialog owns its own keyboard handling.
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null
-      if (
-        target?.closest('input, textarea, select, [contenteditable="true"]')
-      ) {
-        return
-      }
+      if (open || target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')) return
+      const inReel = Boolean(target?.closest('[data-testid="reel-stage"], [data-testid="cue-sheet"]'))
+      const pageFocus = target === document.body || target === document.documentElement
+      if (!inReel && !pageFocus) return
       if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
         step(1)
       } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
         step(-1)
-      } else if (event.key === 'Enter' && !open) {
+      } else if (event.key === 'Enter' && pageFocus) {
         setOpen(true)
-      } else if (event.key === 'Escape' && open) {
-        setOpen(false)
       } else {
         return
       }
@@ -182,7 +179,7 @@ export function GameReel({ games }: { games: Game[] }) {
   if (!current) return null
 
   return (
-    <div className="relative flex h-[calc(100dvh-var(--nav-offset))] flex-col overflow-hidden overscroll-none bg-background">
+    <div data-game={current.slug} className="relative flex h-[calc(100dvh-var(--nav-offset))] flex-col overflow-hidden overscroll-none bg-background">
       {/* Page header */}
       <div className="mx-auto flex w-full max-w-5xl shrink-0 items-start justify-between gap-4 px-4 pt-6 [@media(max-height:620px)]:pt-3 sm:pt-8">
         <div className="min-w-0">

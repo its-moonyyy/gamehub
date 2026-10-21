@@ -121,6 +121,7 @@ describe('Chess tables (e2e)', () => {
     }).expect(201);
     tokenB = registerB.body.accessToken;
     idB = registerB.body.user.id;
+    await app.get(DataSource).getRepository(User).update({ id: In([idA, idB]) }, { balance: 1_000_000 });
   }, 30_000);
 
   afterAll(async () => {
@@ -142,6 +143,7 @@ describe('Chess tables (e2e)', () => {
   it('opens a Chess table and seats two players', async () => {
     const created = await post('/games/chess/tables', tokenA, {
       name: 'E2E chess duel',
+      entryFee: 100,
       maxSeats: 2,
     }).expect(201);
     tableId = created.body.id as number;
@@ -165,7 +167,7 @@ describe('Chess tables (e2e)', () => {
     expect(board).toHaveLength(64);
     expect(board.filter(Boolean)).toHaveLength(32);
 
-    const joined = await post(`/tables/${tableId}/join`, tokenB).expect(201);
+    const joined = await post(`/tables/${tableId}/join`, tokenB, { entryFee: 100 }).expect(201);
     expect(joined.body.seats).toHaveLength(2);
     expect(
       joined.body.seats.every((seat: { stack: number }) => seat.stack === 0),
@@ -316,6 +318,27 @@ describe('Chess tables (e2e)', () => {
       check: true,
       checkmate: true,
     });
+    const winnerProfile = (await get('/users/me', white).expect(200)).body;
+    const loserProfile = (await get('/users/me', black).expect(200)).body;
+    expect(winnerProfile.stats.recentResults[0]).toMatchObject({
+      tableId,
+      gameSlug: 'chess',
+      gameNumber: 1,
+      outcome: 'won',
+      summary: 'checkmate',
+    });
+    expect(loserProfile.stats.recentResults[0]).toMatchObject({
+      tableId,
+      gameSlug: 'chess',
+      gameNumber: 1,
+      outcome: 'lost',
+    });
+    expect(winnerProfile.stats.gameStats).toContainEqual({
+      gameSlug: 'chess', played: 1, won: 1, drawn: 0,
+    });
+    await snapshot(white);
+    const unchanged = (await get('/users/me', white).expect(200)).body;
+    expect(unchanged.stats.recentResults).toHaveLength(1);
     // Nothing more can be played once the game is over.
     const after = await post(`/tables/${tableId}/action`, black, {
       type: 'move',
@@ -495,6 +518,7 @@ describe('Chess tables (e2e)', () => {
   it('creates a table with the chosen clock and charges each bank on its own', async () => {
     const created = await post('/games/chess/tables', tokenA, {
       name: 'E2E bullet',
+      entryFee: 100,
       maxSeats: 2,
       timeControl: '1+0',
     }).expect(201);
@@ -513,7 +537,7 @@ describe('Chess tables (e2e)', () => {
     ).find((entry) => entry.id === bulletId);
     expect(row?.timeControl).toBe('1+0');
 
-    await post(`/tables/${bulletId}/join`, tokenB).expect(201);
+    await post(`/tables/${bulletId}/join`, tokenB, { entryFee: 100 }).expect(201);
     await post(`/tables/${bulletId}/action`, tokenA, {
       type: 'ready',
     }).expect(201);

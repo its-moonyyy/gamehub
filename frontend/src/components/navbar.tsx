@@ -1,5 +1,6 @@
 import {
   LogOutIcon,
+  ShieldIcon,
   SettingsIcon,
   SpadeIcon,
   UserRoundIcon,
@@ -56,13 +57,15 @@ export function Navbar() {
 
         {user ? (
           <div className="flex items-center gap-2">
-            <Badge
-              variant="secondary"
-              className="hidden gap-1.5 rounded-full px-2.5 sm:flex"
-            >
-              <WalletIcon />
-              {formatMoney(user.balance)}
-            </Badge>
+            {user.role === 'player' && (
+              <Badge
+                variant="secondary"
+                className="gap-1.5 rounded-full px-2.5 tabular-nums"
+              >
+                <WalletIcon />
+                {formatMoney(user.balance)}
+              </Badge>
+            )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -89,35 +92,48 @@ export function Navbar() {
                 <DropdownMenuLabel>
                   <div className="flex flex-col gap-0.5">
                     <span>{user.displayName}</span>
-                    <span className="text-xs font-normal text-muted-foreground">
-                      {user.phoneNumber}
-                    </span>
+                    {user.role === 'player' && (
+                      <span className="text-xs font-normal text-muted-foreground">
+                        {user.phoneNumber}
+                      </span>
+                    )}
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                  <Link to="/profile">
-                    <UserRoundIcon />
-                    Profile
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link to="/friends">
-                    <UsersIcon />
-                    Friends
-                    {pendingCount > 0 && (
-                      <Badge className="ml-auto h-5 min-w-5 rounded-full px-1.5 text-[10px]">
-                        {pendingCount}
-                      </Badge>
-                    )}
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link to="/settings">
-                    <SettingsIcon />
-                    Settings
-                  </Link>
-                </DropdownMenuItem>
+                {user.role === 'admin' ? (
+                  <DropdownMenuItem asChild>
+                    <Link to="/admin">
+                      <ShieldIcon />
+                      Admin dashboard
+                    </Link>
+                  </DropdownMenuItem>
+                ) : (
+                  <>
+                    <DropdownMenuItem asChild>
+                      <Link to="/profile">
+                        <UserRoundIcon />
+                        Profile
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link to="/friends">
+                        <UsersIcon />
+                        Friends
+                        {pendingCount > 0 && (
+                          <Badge className="ml-auto h-5 min-w-5 rounded-full px-1.5 text-[10px]">
+                            {pendingCount}
+                          </Badge>
+                        )}
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link to="/settings">
+                        <SettingsIcon />
+                        Settings
+                      </Link>
+                    </DropdownMenuItem>
+                  </>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={handleLogout}>
                   <LogOutIcon />

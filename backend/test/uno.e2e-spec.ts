@@ -24,8 +24,8 @@ describe('Uno tables (e2e)', () => {
   let tableId = 0;
 
   const suffix = (Date.now() % 10_000_000).toString().padStart(7, '0');
-  const phoneA = `+49179${suffix}`;
-  const phoneB = `+49180${suffix}`;
+  const phoneA = `+49222${suffix}`;
+  const phoneB = `+49223${suffix}`;
 
   const get = (path: string, token: string) =>
     request(app.getHttpServer())
@@ -90,6 +90,7 @@ describe('Uno tables (e2e)', () => {
     }).expect(201);
     tokenB = registerB.body.accessToken;
     idB = registerB.body.user.id;
+    await app.get(DataSource).getRepository(User).update({ id: In([idA, idB]) }, { balance: 1_000_000 });
   }, 30_000);
 
   afterAll(async () => {
@@ -111,7 +112,9 @@ describe('Uno tables (e2e)', () => {
   it('opens an Uno table and seats two players', async () => {
     const created = await post('/games/uno/tables', tokenA, {
       name: 'E2E Uno table',
+      entryFee: 100,
       maxSeats: 2,
+      turnSeconds: 75,
     }).expect(201);
     tableId = created.body.id as number;
     expect(created.body.gameSlug).toBe('uno');
@@ -121,7 +124,7 @@ describe('Uno tables (e2e)', () => {
     // Uno tables carry no blinds.
     expect(created.body.smallBlind).toBeNull();
 
-    const joined = await post(`/tables/${tableId}/join`, tokenB).expect(201);
+    const joined = await post(`/tables/${tableId}/join`, tokenB, { entryFee: 100 }).expect(201);
     expect(joined.body.seats).toHaveLength(2);
     expect(
       joined.body.seats.every((seat: { stack: number }) => seat.stack === 0),
@@ -150,6 +153,9 @@ describe('Uno tables (e2e)', () => {
       type: 'ready',
     }).expect(201);
     const game = started.body.game;
+    const remainingMs = game.turnDeadline - game.serverNow;
+    expect(remainingMs).toBeGreaterThan(74_000);
+    expect(remainingMs).toBeLessThanOrEqual(75_000);
     expect(game.phase).toBe('playing');
     expect(game.gameNumber).toBe(1);
     expect(game.turnUserId).toBe(idA);

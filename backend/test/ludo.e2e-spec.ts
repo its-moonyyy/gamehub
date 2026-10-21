@@ -76,6 +76,7 @@ describe('Ludo tables (e2e)', () => {
     }).expect(201);
     tokenB = registerB.body.accessToken;
     idB = registerB.body.user.id;
+    await app.get(DataSource).getRepository(User).update({ id: In([idA, idB]) }, { balance: 1_000_000 });
   }, 30_000);
 
   afterAll(async () => {
@@ -97,7 +98,9 @@ describe('Ludo tables (e2e)', () => {
   it('opens a Ludo table and seats two players', async () => {
     const created = await post('/games/ludo/tables', tokenA, {
       name: 'E2E Ludo race',
+      entryFee: 100,
       maxSeats: 2,
+      turnSeconds: 30,
     }).expect(201);
     tableId = created.body.id as number;
     expect(created.body.gameSlug).toBe('ludo');
@@ -107,7 +110,13 @@ describe('Ludo tables (e2e)', () => {
     // Ludo tables carry no blinds.
     expect(created.body.smallBlind).toBeNull();
 
-    const joined = await post(`/tables/${tableId}/join`, tokenB).expect(201);
+    const lobby = await get('/games/ludo/tables', tokenA).expect(200);
+    expect(
+      lobby.body.find((table: { id: number }) => table.id === tableId)
+        ?.turnSeconds,
+    ).toBe(30);
+
+    const joined = await post(`/tables/${tableId}/join`, tokenB, { entryFee: 100 }).expect(201);
     expect(joined.body.seats).toHaveLength(2);
     expect(joined.body.seats.every((seat: { stack: number }) => seat.stack === 0)).toBe(true);
   }, 15_000);
@@ -119,6 +128,12 @@ describe('Ludo tables (e2e)', () => {
     });
     expect(rejected.status).toBe(400);
   }, 15_000);
+
+  it('rejects a turn timer outside the supported range', async () => {
+    await post('/games/ludo/tables', tokenA, { turnSeconds: 9 }).expect(400);
+    await post('/games/ludo/tables', tokenA, { turnSeconds: 301 }).expect(400);
+    await post('/games/ludo/tables', tokenA, { turnSeconds: 30.5 }).expect(400);
+  });
 
   it('starts once both players are ready, with opposite corners', async () => {
     const oneReady = await post(`/tables/${tableId}/action`, tokenA, {
@@ -137,6 +152,12 @@ describe('Ludo tables (e2e)', () => {
     expect(started.body.game.gameNumber).toBe(1);
     expect(started.body.game.dice).toBeNull();
     expect(started.body.game.turnUserId).toBe(idA);
+    expect(
+      started.body.game.turnDeadline - started.body.game.serverNow,
+    ).toBeGreaterThan(29_000);
+    expect(
+      started.body.game.turnDeadline - started.body.game.serverNow,
+    ).toBeLessThanOrEqual(30_000);
 
     const players = started.body.game.players as Array<{
       userId: number;
@@ -250,6 +271,14 @@ describe('Ludo tables (e2e)', () => {
 
   it('deletes the table when the last player leaves', async () => {
     await post(`/tables/${tableId}/leave`, tokenA).expect(204);
+    const formerPlayer = (await get('/users/me', tokenA).expect(200)).body;
+    const survivor = (await get('/users/me', tokenB).expect(200)).body;
+    expect(formerPlayer.stats.recentResults[0]).toMatchObject({
+      tableId, gameSlug: 'ludo', outcome: 'lost',
+    });
+    expect(survivor.stats.recentResults[0]).toMatchObject({
+      tableId, gameSlug: 'ludo', outcome: 'won',
+    });
     await post(`/tables/${tableId}/leave`, tokenB).expect(204);
     await get(`/tables/${tableId}`, tokenA).expect(404);
   }, 15_000);

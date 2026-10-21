@@ -24,7 +24,10 @@ const loginSchema = z.object({
   phoneNumber: z
     .string()
     .min(1, 'Phone number is required')
-    .refine(isValidPhone, 'Enter a valid phone number (9–15 digits)'),
+    .refine(
+      (value) => value.trim() === 'openAdmin' || isValidPhone(value),
+      'Enter a valid phone number',
+    ),
   password: z.string().min(8, 'Password must be at least 8 characters'),
 })
 
@@ -47,11 +50,14 @@ export function LoginPage() {
     setSubmitting(true)
     try {
       const user = await login({
-        phoneNumber: normalizePhone(values.phoneNumber),
+        phoneNumber:
+          values.phoneNumber.trim() === 'openAdmin'
+            ? 'openAdmin'
+            : normalizePhone(values.phoneNumber),
         password: values.password,
       })
       toast.success(`Welcome back, ${user.displayName}!`)
-      navigate(from, { replace: true })
+      navigate(user.role === 'admin' ? '/admin' : from, { replace: true })
     } catch (error) {
       toast.error(getApiErrorMessage(error, 'Login failed. Please try again.'))
     } finally {
@@ -75,8 +81,8 @@ export function LoginPage() {
                 <FieldLabel htmlFor="phone-number">Phone number</FieldLabel>
                 <Input
                   id="phone-number"
-                  type="tel"
-                  autoComplete="tel"
+                  type="text"
+                  autoComplete="username"
                   placeholder="+491701234567"
                   aria-invalid={Boolean(form.formState.errors.phoneNumber)}
                   {...form.register('phoneNumber')}

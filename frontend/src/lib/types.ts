@@ -2,7 +2,25 @@ export interface User {
   id: number
   phoneNumber: string
   displayName: string
-  /** Balance in cents. Real-money top-ups arrive in a later step. */
+  /** Virtual balance in cents. */
+  balance: number
+  createdAt: string
+  role: 'player' | 'admin'
+}
+
+export interface AdminUserInfo {
+  id: number
+  phoneNumber: string
+  displayName: string
+  balance: number
+}
+
+export interface AdminCreditInfo {
+  id: number
+  userId: number
+  phoneNumber: string
+  displayName: string
+  amountCents: number
   balance: number
   createdAt: string
 }
@@ -25,14 +43,29 @@ export interface TableSummary {
   id: number
   name: string
   maxSeats: number
+  entryFee: number | null
   smallBlind: number | null
   bigBlind: number | null
   /** Chess only: the clock the creator picked, e.g. "3+2". */
   timeControl: string | null
+  /** Seconds per turn for non-chess games. */
+  turnSeconds: number | null
   creatorName: string
   seatedCount: number
   seatedUserIds: number[]
   createdAt: string
+}
+
+export interface GameResult {
+  id: number
+  tableId: number
+  tableName: string
+  gameSlug: string
+  gameNumber: number
+  outcome: 'won' | 'lost' | 'draw'
+  summary: string
+  opponentNames: string[]
+  finishedAt: string
 }
 
 export interface TableSeat {
@@ -428,6 +461,7 @@ export interface TableDetails {
   id: number
   name: string
   maxSeats: number
+  entryFee: number | null
   smallBlind: number | null
   bigBlind: number | null
   gameSlug: string
@@ -452,6 +486,8 @@ export interface UserStats {
   tablesCreated: number
   /** Tables this user is sitting at right now — rejoin straight from here. */
   seatedTables: SeatedTableSummary[]
+  recentResults: GameResult[]
+  gameStats: { gameSlug: string; played: number; won: number; drawn: number }[]
 }
 
 /** `/users/me` — the profile plus what the player is up to. */
@@ -466,7 +502,6 @@ export type FriendStatus = Extract<SeatStatus, 'online' | 'offline'>
 export interface Friend {
   id: number
   displayName: string
-  phoneNumber: string
   status: FriendStatus
   lastSeenAt: string | null
   friendsSince: string
@@ -477,7 +512,6 @@ export interface FriendRequestInfo {
   id: number
   userId: number
   displayName: string
-  phoneNumber: string
   status: FriendStatus
   createdAt: string
 }
@@ -495,7 +529,6 @@ export type FriendRelation = 'none' | 'friends' | 'outgoing' | 'incoming'
 export interface PlayerSearchResult {
   id: number
   displayName: string
-  phoneNumber: string
   status: FriendStatus
   relation: FriendRelation
   /** The request to accept right away when the request is theirs. */
@@ -513,6 +546,7 @@ export interface TableInvite {
   inviterName: string
   seatedCount: number
   maxSeats: number
+  entryFee: number | null
   createdAt: string
 }
 

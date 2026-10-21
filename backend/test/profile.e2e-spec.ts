@@ -77,6 +77,7 @@ describe('Profile and settings (e2e)', () => {
     }).expect(201);
     tokenB = registerB.body.accessToken;
     idB = registerB.body.user.id;
+    await app.get(DataSource).getRepository(User).update({ id: In([idA, idB]) }, { balance: 1_000_000 });
   }, 30_000);
 
   afterAll(async () => {
@@ -171,6 +172,7 @@ describe('Profile and settings (e2e)', () => {
   it('counts the tables you opened and the seats you hold', async () => {
     const created = await post('/games/poker/tables', tokenA, {
       name: 'E2E profile table',
+      entryFee: 20_000,
       maxSeats: 2,
       smallBlind: 1,
       bigBlind: 2,
@@ -182,14 +184,14 @@ describe('Profile and settings (e2e)', () => {
     expect(asCreator.body.stats.seatedTables).toHaveLength(1);
     expect(asCreator.body.stats.seatedTables[0]).toMatchObject({
       id: tableId,
-      name: 'E2E profile table',
+      name: created.body.name,
       gameSlug: 'poker',
       gameName: "Texas Hold'em Poker",
       seatedCount: 1,
       maxSeats: 2,
     });
 
-    await post(`/tables/${tableId}/join`, tokenB).expect(201);
+    await post(`/tables/${tableId}/join`, tokenB, { entryFee: 20_000 }).expect(201);
 
     const twoHanded = await get('/users/me', tokenA).expect(200);
     expect(twoHanded.body.stats.seatedTables[0].seatedCount).toBe(2);

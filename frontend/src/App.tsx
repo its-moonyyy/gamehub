@@ -2,6 +2,7 @@ import { MotionConfig } from 'motion/react'
 import { Outlet, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { Navbar } from '@/components/navbar'
 import { RequireAuth } from '@/components/require-auth'
+import { RequireAdmin } from '@/components/require-admin'
 import { Toaster } from '@/components/ui/sonner'
 import { SocialProvider } from '@/lib/social-context'
 import { ChessRoomPage } from '@/pages/chess-room'
@@ -16,7 +17,9 @@ import { ProfilePage } from '@/pages/profile'
 import { RegisterPage } from '@/pages/register'
 import { SettingsPage } from '@/pages/settings'
 import { TableRoomPage } from '@/pages/table-room'
+import { PaidTableGate } from '@/components/paid-table-gate'
 import { UnoRoomPage } from '@/pages/uno-room'
+import { AdminPage } from '@/pages/admin'
 
 /** The home reel fills the screen edge to edge — no footer under it. */
 const FULLSCREEN_ROUTES = new Set(['/'])
@@ -33,8 +36,7 @@ function SiteLayout() {
       </main>
       {withFooter && (
         <footer className="border-t py-6 text-center text-xs text-muted-foreground">
-          GameHub — play with real people. No bots, ever. Real-money wallet
-          coming soon.
+          GameHub — play with real people. Virtual credits only.
         </footer>
       )}
     </div>
@@ -70,6 +72,10 @@ export function App() {
               <Route path="settings" element={<SettingsPage />} />
             </Route>
 
+            <Route element={<RequireAdmin />}>
+              <Route path="admin" element={<AdminPage />} />
+            </Route>
+
             <Route path="*" element={<NotFoundPage />} />
           </Route>
 
@@ -78,7 +84,7 @@ export function App() {
             <Route path="play/:slug" element={<GamePage />} />
             <Route
               path="play/:slug/table/:tableId"
-              element={<TableRoomRoute />}
+              element={<PaidTableGate><TableRoomRoute /></PaidTableGate>}
             />
           </Route>
         </Routes>

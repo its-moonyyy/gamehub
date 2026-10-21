@@ -17,7 +17,6 @@ export type FriendStatus = 'online' | 'offline';
 export interface FriendInfo {
   id: number;
   displayName: string;
-  phoneNumber: string;
   status: FriendStatus;
   lastSeenAt: Date | null;
   /** When the friendship was accepted. */
@@ -30,7 +29,6 @@ export interface FriendRequestInfo {
   id: number;
   userId: number;
   displayName: string;
-  phoneNumber: string;
   status: FriendStatus;
   createdAt: Date;
 }
@@ -47,7 +45,6 @@ export type FriendRelation = 'none' | 'friends' | 'outgoing' | 'incoming';
 export interface PlayerSearchResult {
   id: number;
   displayName: string;
-  phoneNumber: string;
   status: FriendStatus;
   relation: FriendRelation;
   /** The pending request's id when the request is theirs, so it can be accepted right away. */
@@ -91,7 +88,6 @@ export class FriendsService {
         friends.push({
           id: other.id,
           displayName: other.displayName,
-          phoneNumber: other.phoneNumber,
           status: this.statusOf(other, now),
           lastSeenAt: other.lastSeenAt,
           friendsSince: row.updatedAt,
@@ -103,7 +99,6 @@ export class FriendsService {
         id: row.id,
         userId: other.id,
         displayName: other.displayName,
-        phoneNumber: other.phoneNumber,
         status: this.statusOf(other, now),
         createdAt: row.createdAt,
       };
@@ -133,7 +128,8 @@ export class FriendsService {
     const digits = text.replace(/[\s\-()]/g, '');
     const lookups = [
       { displayName: ILike(`%${text}%`) },
-      ...(/^\+?[0-9]+$/.test(digits) ? [{ phoneNumber: ILike(`%${digits}%`) }] : []),
+      // A known full number can find its owner; fragments cannot enumerate accounts.
+      ...(/^\+?[0-9]{9,15}$/.test(digits) ? [{ phoneNumber: digits }] : []),
     ];
 
     const users = await this.usersRepository.find({
@@ -174,7 +170,6 @@ export class FriendsService {
       return {
         id: user.id,
         displayName: user.displayName,
-        phoneNumber: user.phoneNumber,
         status: this.statusOf(user, now),
         relation,
         requestId: relation === 'incoming' ? (row?.id ?? null) : null,

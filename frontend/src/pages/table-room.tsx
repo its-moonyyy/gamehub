@@ -18,6 +18,9 @@ import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { AnimatePresence, motion } from 'motion/react'
 import { toast } from 'sonner'
 import { InviteFriendsDialog } from '@/components/invite-friends-dialog'
+import { RoomWaitingActions } from '@/components/room-waiting-actions'
+import { RoomConnectionStatus } from '@/components/room-connection-status'
+import { PlayerWalletBadge } from '@/components/player-wallet-badge'
 import { CardBack, PlayingCard } from '@/components/playing-card'
 import { PokerSeat } from '@/components/poker-seat'
 import { Badge } from '@/components/ui/badge'
@@ -41,8 +44,8 @@ import { useAuth } from '@/lib/auth-context'
 import { formatBlinds, formatMoney } from '@/lib/format'
 import type { TableDetails, TablePotAward, TableSeat } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { useLiveTable } from '@/lib/use-live-table'
 
-const POLL_INTERVAL_MS = 1200
 const SEAT_WIDTH_PERCENT = 25.2
 
 /**
@@ -292,7 +295,7 @@ function seatCornerPosition(
 export function TableRoomPage() {
   const { slug = '', tableId = '' } = useParams()
   const navigate = useNavigate()
-  const { user } = useAuth()
+  const { user, refreshUser } = useAuth()
   const [table, setTable] = useState<TableDetails | null>(null)
   /** When the latest table snapshot arrived (for the turn timer). */
   const [fetchedAt, setFetchedAt] = useState(() => Date.now())
@@ -365,7 +368,7 @@ export function TableRoomPage() {
     }
   }, [slug, tableId, backToLobby, applyTable])
 
-  // Poll often — a hand moves fast and every action should show up quickly.
+  // Fetch a masked snapshot after live invalidation or a deadline wakeup.
   const refresh = useCallback(async () => {
     const seq = ++requestSeqRef.current
     try {
@@ -379,15 +382,8 @@ export function TableRoomPage() {
     }
   }, [tableId, applyTable, backToLobby])
 
-  useEffect(() => {
-    if (slug !== 'poker') return
-    const interval = window.setInterval(() => {
-      void refresh()
-    }, POLL_INTERVAL_MS)
-    return () => window.clearInterval(interval)
-  }, [slug, refresh])
 
-  // Local clock for a smooth countdown between polls.
+  // Local clock for a smooth countdown between server snapshots.
   useEffect(() => {
     const interval = window.setInterval(() => setNow(Date.now()), 500)
     return () => window.clearInterval(interval)
@@ -413,6 +409,7 @@ export function TableRoomPage() {
   async function handleLeave() {
     try {
       await tablesApi.leave(tableId)
+      void refreshUser().catch(() => {})
     } catch {
       // Table may already be gone — still navigate back.
     }
@@ -420,6 +417,7 @@ export function TableRoomPage() {
   }
 
   const game = table?.game.kind === 'poker' ? table.game : null
+  useLiveTable(tableId, refresh, game?.turnDeadline ?? null, game?.serverNow ?? null, fetchedAt)
   const seats = table?.seats ?? []
   const mySeat = seats.find((seat) => seat.userId === user?.id)
   const legal = game?.legal ?? null
@@ -580,9 +578,9 @@ export function TableRoomPage() {
   const turnRiver = community.slice(3, 5)
 
   return (
-    <div className="grid h-[100dvh] grid-cols-1 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-background room-side:grid-cols-[minmax(0,1fr)_minmax(240px,46%)] room-side:grid-rows-[auto_minmax(0,1fr)]">
+    <div data-game="poker" className="grid h-[100dvh] grid-cols-1 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-background room-side:grid-cols-[minmax(0,1fr)_minmax(240px,46%)] room-side:grid-rows-[auto_minmax(0,1fr)]">
       {/* Top bar */}
-      <div className="flex shrink-0 items-center gap-2 border-b bg-card px-3 py-2.5 room-side:col-span-2">
+      <div className="room-topbar flex shrink-0 items-center gap-2 border-b bg-card px-3 py-2.5 room-side:col-span-2">
         <Button variant="ghost" size="icon" asChild>
           <Link to={`/play/${slug}`} aria-label="Back to tables">
             <ArrowLeftIcon />
@@ -604,6 +602,8 @@ export function TableRoomPage() {
             {showTimer ? `${secondsLeft}s` : '—'}
           </span>
         </div>
+        <PlayerWalletBadge />
+        <RoomConnectionStatus />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" aria-label="Table menu">
@@ -652,7 +652,7 @@ export function TableRoomPage() {
       {/* Table area — absorbs the leftover height, the table scales to fit */}
       <div
         ref={tableAreaRef}
-        className="flex min-h-0 flex-1 items-center justify-center overflow-hidden px-3 py-3 room-side:col-start-1 room-side:row-start-2"
+        className="room-board-area flex min-h-0 flex-1 items-center justify-center overflow-hidden px-3 py-3 room-side:col-start-1 room-side:row-start-2"
       >
         {table === null ? (
           <Loader2Icon className="size-6 animate-spin text-muted-foreground" />
@@ -827,28 +827,34 @@ export function TableRoomPage() {
 
       {/* Betting controls — under the table in portrait, beside it when the
           screen is wide but short, so the table can use the full height */}
-      <div className="shrink-0 border-t bg-card px-4 pt-3 pb-5 room-side:col-start-2 room-side:row-start-2 room-side:flex room-side:items-center room-side:border-t-0 room-side:border-l room-side:py-3">
+      <div className="room-controls-panel shrink-0 border-t bg-card px-4 pt-3 pb-5 room-side:col-start-2 room-side:row-start-2 room-side:flex room-side:items-center room-side:border-t-0 room-side:border-l room-side:py-3">
         <div
           className="mx-auto flex w-full max-w-[420px] flex-col gap-3"
           data-testid="controls"
         >
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">
-              {game?.currentBet ? 'Raise to' : 'Bet amount'}
-            </span>
-            <span className="font-medium tabular-nums">
-              {formatMoney(raiseRange ? raiseTarget : 0)}
-            </span>
-          </div>
-          <Slider
-            value={[raiseRange ? raiseTarget : 0]}
-            min={raiseRange?.min ?? 0}
-            max={raiseRange?.max ?? 1}
-            step={Math.max(1, table?.smallBlind ?? 100)}
-            disabled={!isMyTurn || raiseRange == null || pending}
-            onValueChange={(value) => setBet(value[0] ?? 0)}
-          />
-          {isWaiting ? (
+          {!isWaiting && (
+            <>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">
+                  {game?.currentBet ? 'Raise to' : 'Bet amount'}
+                </span>
+                <span className="font-medium tabular-nums">
+                  {formatMoney(raiseRange ? raiseTarget : 0)}
+                </span>
+              </div>
+              <Slider
+                value={[raiseRange ? raiseTarget : 0]}
+                min={raiseRange?.min ?? 0}
+                max={raiseRange?.max ?? 1}
+                step={Math.max(1, table?.smallBlind ?? 100)}
+                disabled={!isMyTurn || raiseRange == null || pending}
+                onValueChange={(value) => setBet(value[0] ?? 0)}
+              />
+            </>
+          )}
+          {isWaiting && seats.length < 2 ? (
+            <RoomWaitingActions onInvite={() => setInviteOpen(true)} />
+          ) : isWaiting ? (
             <Button
               className="w-full"
               disabled={pending || !mySeat || mySeat.ready || seats.length < 2}

@@ -25,13 +25,19 @@ import { getApiErrorMessage, usersApi } from '@/lib/api'
 import { useAuth } from '@/lib/auth-context'
 import { formatMoney, initials } from '@/lib/format'
 import { FALLBACK_GAME_ICON, GAME_ICONS } from '@/lib/game-icons'
-import type { SeatedTableSummary, UserStats } from '@/lib/types'
+import type { GameResult, SeatedTableSummary, UserStats } from '@/lib/types'
 
 /** The stats endpoint sends game slugs; the catalog keys icons per game. */
 const GAME_ICON_BY_SLUG: Record<string, LucideIcon> = {
   poker: GAME_ICONS.spade,
   ludo: GAME_ICONS.dice,
+  dominoes: GAME_ICONS.domino,
+  chess: GAME_ICONS.chess,
   uno: GAME_ICONS.layers,
+}
+
+const GAME_NAMES: Record<string, string> = {
+  poker: 'Poker', ludo: 'Ludo', dominoes: 'Dominoes', chess: 'Chess', uno: 'Uno',
 }
 
 /** "October 2026" — when the account was opened. */
@@ -93,6 +99,30 @@ function SeatedTableRow({ table }: { table: SeatedTableSummary }) {
         <Link to={`/play/${table.gameSlug}/table/${table.id}`}>Rejoin</Link>
       </Button>
     </div>
+  )
+}
+
+function ResultRow({ result }: { result: GameResult }) {
+  const Icon = GAME_ICON_BY_SLUG[result.gameSlug] ?? FALLBACK_GAME_ICON
+  return (
+    <Card size="sm">
+      <CardContent className="flex items-center gap-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <Icon className="size-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium">
+            {GAME_NAMES[result.gameSlug] ?? result.gameSlug} · {result.tableName}
+          </p>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            vs {result.opponentNames.join(', ')} · {result.summary} · {new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' }).format(new Date(result.finishedAt))}
+          </p>
+        </div>
+        <Badge variant={result.outcome === 'won' ? 'default' : 'secondary'}>
+          {result.outcome === 'won' ? 'Won' : result.outcome === 'draw' ? 'Draw' : 'Lost'}
+        </Badge>
+      </CardContent>
+    </Card>
   )
 }
 
@@ -222,6 +252,38 @@ export function ProfilePage() {
             <Link to="/">Find a table</Link>
           </Button>
         </CardFooter>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Game history</CardTitle>
+          <CardDescription>Your last 20 completed hands, rounds and games.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          {stats === null ? (
+            <Skeleton className="h-24 rounded-xl" />
+          ) : stats.recentResults.length === 0 ? (
+            <p className="py-5 text-center text-sm text-muted-foreground">Finish a game to see your results here.</p>
+          ) : (
+            <>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {stats.gameStats.map((item) => (
+                  <Card key={item.gameSlug} size="sm">
+                    <CardContent>
+                      <p className="text-sm font-medium">{GAME_NAMES[item.gameSlug] ?? item.gameSlug}</p>
+                      <p className="text-xs text-muted-foreground tabular-nums">
+                        {item.played} played · {item.won} won · {item.drawn} drawn
+                      </p>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+              <div className="flex flex-col gap-2">
+                {stats.recentResults.map((result) => <ResultRow key={result.id} result={result} />)}
+              </div>
+            </>
+          )}
+        </CardContent>
       </Card>
 
       <Card>

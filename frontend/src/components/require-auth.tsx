@@ -22,5 +22,9 @@ export function RequireAuth() {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />
   }
 
+  if (user.role === 'admin') {
+    return <Navigate to="/admin" replace />
+  }
+
   return <Outlet />
 }

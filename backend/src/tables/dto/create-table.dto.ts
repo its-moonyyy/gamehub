@@ -2,19 +2,17 @@ import {
   IsIn,
   IsInt,
   IsOptional,
-  IsString,
   Max,
-  MaxLength,
   Min,
-  MinLength,
 } from 'class-validator';
 import { CHESS_TIME_CONTROL_IDS } from '../../chess/chess-engine.js';
 
 export class CreateTableDto {
-  @IsString()
-  @MinLength(2, { message: 'name must be at least 2 characters' })
-  @MaxLength(40, { message: 'name must be at most 40 characters' })
-  name: string;
+  /** Seat price in cents; also the poker starting stack. */
+  @IsInt()
+  @Min(1)
+  @Max(100_000_000)
+  entryFee: number;
 
   @IsOptional()
   @IsInt()
@@ -28,6 +26,13 @@ export class CreateTableDto {
     message: 'timeControl must be one of the offered clocks',
   })
   timeControl?: string;
+
+  /** Non-chess games: seconds allowed for each player's turn. */
+  @IsOptional()
+  @IsInt()
+  @Min(10)
+  @Max(300)
+  turnSeconds?: number;
 
   /** In cents, e.g. 100 = $1. */
   @IsOptional()

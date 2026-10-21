@@ -1,25 +1,29 @@
 import { useCallback, useEffect, useState } from 'react'
-import { BotOffIcon, Loader2Icon, PlusIcon, UsersIcon } from 'lucide-react'
+import { BotOffIcon, Loader2Icon, PlayIcon, PlusIcon, UsersIcon } from 'lucide-react'
+import { motion } from 'motion/react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { CreateTableDialog } from '@/components/create-table-dialog'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
 import { getApiErrorMessage, tablesApi } from '@/lib/api'
 import { useAuth } from '@/lib/auth-context'
-import { formatBlinds, initials } from '@/lib/format'
+import { formatBlinds, formatMoney, initials } from '@/lib/format'
 import type { Game, TableSummary } from '@/lib/types'
+import { subscribeGameEvents } from '@/lib/game-events'
 
-const POLL_INTERVAL_MS = 5000
+const POLL_INTERVAL_MS = 30_000
 
 export function TablesLobby({ game }: { game: Game }) {
-  const { user } = useAuth()
+  const { user, refreshUser } = useAuth()
   const navigate = useNavigate()
   const [tables, setTables] = useState<TableSummary[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [joiningId, setJoiningId] = useState<number | null>(null)
+  const [pendingTable, setPendingTable] = useState<TableSummary | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
 
   const fetchTables = useCallback(
@@ -40,23 +44,56 @@ export function TablesLobby({ game }: { game: Game }) {
     fetchTables()
   }, [fetchTables])
 
-  // Light polling so tables created on other devices show up on their own.
+  // Live invalidation with a slow fallback for missed events.
   useEffect(() => {
+    const unsubscribe = subscribeGameEvents((event) => {
+      if (event.kind === 'sync' || (event.kind === 'table' && event.gameSlug === game.slug)) fetchTables(true)
+    })
     const interval = window.setInterval(
-      () => fetchTables(true),
+      () => { if (!document.hidden) fetchTables(true) },
       POLL_INTERVAL_MS,
     )
-    return () => window.clearInterval(interval)
-  }, [fetchTables])
+    const onReturn = () => fetchTables(true)
+    window.addEventListener('focus', onReturn)
+    return () => {
+      unsubscribe()
+      window.clearInterval(interval)
+      window.removeEventListener('focus', onReturn)
+    }
+  }, [fetchTables, game.slug])
+
+  function handleQuickPlay() {
+    if (!tables) return
+    const candidates = [...tables]
+      .filter((table) => table.seatedCount < table.maxSeats || table.seatedUserIds.includes(user?.id ?? -1))
+      .sort((a, b) => {
+        const aMine = a.seatedUserIds.includes(user?.id ?? -1) ? 1 : 0
+        const bMine = b.seatedUserIds.includes(user?.id ?? -1) ? 1 : 0
+        return bMine - aMine || b.seatedCount - a.seatedCount || a.id - b.id
+      })
+    if (candidates[0]) void handleJoin(candidates[0])
+    else setCreateOpen(true)
+  }
 
   async function handleJoin(table: TableSummary) {
+    if (!table.seatedUserIds.includes(user?.id ?? -1) && table.entryFee != null) {
+      setPendingTable(table)
+      return
+    }
+    await joinTable(table)
+  }
+
+  async function joinTable(table: TableSummary) {
     setJoiningId(table.id)
     try {
-      await tablesApi.join(table.id)
+      await tablesApi.join(table.id, table.entryFee ?? undefined)
+      void refreshUser().catch(() => {})
+      setPendingTable(null)
       navigate(`/play/${game.slug}/table/${table.id}`)
     } catch (err) {
       toast.error(getApiErrorMessage(err, 'Could not join this table.'))
       fetchTables()
+      setPendingTable(null)
     } finally {
       setJoiningId(null)
     }
@@ -70,10 +107,15 @@ export function TablesLobby({ game }: { game: Game }) {
           <BotOffIcon className="size-4" />
           Open tables — every seat is a real player
         </p>
-        <Button size="sm" onClick={() => setCreateOpen(true)}>
-          <PlusIcon />
-          Create table
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={() => setCreateOpen(true)}>
+            <PlusIcon /> Create table
+          </Button>
+          <Button size="sm" disabled={!tables} onClick={handleQuickPlay}>
+            <PlayIcon />
+            Play now
+          </Button>
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4">
@@ -133,6 +175,27 @@ export function TablesLobby({ game }: { game: Game }) {
         )}
       </div>
 
+      <Dialog open={pendingTable !== null} onOpenChange={(open) => { if (!open && joiningId === null) setPendingTable(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm table entry</DialogTitle>
+            <DialogDescription>
+              Pay {formatMoney(pendingTable?.entryFee ?? 0)} to take a seat at {pendingTable?.name}.
+              {game.slug === 'poker'
+                ? ' This becomes your starting stack; your remaining chips return to your wallet when you leave.'
+                : ' This entry price is charged once for this seat.'}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" disabled={joiningId !== null} onClick={() => setPendingTable(null)}>Cancel</Button>
+            <Button disabled={joiningId !== null} onClick={() => { if (pendingTable) void joinTable(pendingTable) }}>
+              {joiningId !== null && <motion.span className="inline-flex" animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}><Loader2Icon /></motion.span>}
+              Pay &amp; join
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <CreateTableDialog
         game={game}
         open={createOpen}
@@ -157,7 +220,7 @@ function TableRow({ table, currentUserId, joining, onJoin }: TableRowProps) {
   const seated =
     currentUserId != null && table.seatedUserIds.includes(currentUserId)
   const blinds = formatBlinds(table.smallBlind, table.bigBlind)
-  const label = full && !seated ? 'Full' : seated ? 'Open' : 'Join'
+  const label = full && !seated ? 'Full' : seated ? 'Rejoin' : 'Join'
 
   return (
     <Card>
@@ -173,7 +236,9 @@ function TableRow({ table, currentUserId, joining, onJoin }: TableRowProps) {
             by {table.creatorName} · {table.seatedCount}/{table.maxSeats}{' '}
             seated
             {blinds ? ` · blinds ${blinds}` : ''}
-            {table.timeControl ? ` · ${table.timeControl}` : ''}
+            {table.entryFee != null ? ` · entry ${formatMoney(table.entryFee)}` : ''}
+            {table.timeControl ? ` · ${table.timeControl} per player` : ''}
+            {table.turnSeconds != null ? ` · ${table.turnSeconds}s/turn` : ''}
           </p>
         </div>
         <Button
@@ -182,8 +247,8 @@ function TableRow({ table, currentUserId, joining, onJoin }: TableRowProps) {
           disabled={(full && !seated) || joining}
           onClick={onJoin}
         >
-          {joining && <Loader2Icon className="animate-spin" />}
-          {label}
+          {joining && <motion.span className="inline-flex" animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}><Loader2Icon /></motion.span>}
+          {label === 'Join' && table.entryFee != null ? `Join · ${formatMoney(table.entryFee)}` : label}
         </Button>
       </CardContent>
     </Card>

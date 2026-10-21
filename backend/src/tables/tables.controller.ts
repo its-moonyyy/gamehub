@@ -7,13 +7,18 @@ import {
   Param,
   ParseIntPipe,
   Post,
+  Sse,
+  type MessageEvent,
 } from '@nestjs/common';
+import type { Observable } from 'rxjs';
 import type { AuthenticatedUser } from '../auth/auth.guard.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { CreateTableDto } from './dto/create-table.dto.js';
+import { ConfirmSeatDto } from './dto/confirm-seat.dto.js';
 import { InviteFriendDto } from './dto/invite-friend.dto.js';
 import { TableActionDto } from './dto/table-action.dto.js';
 import { TableIdPipe } from './table-id.pipe.js';
+import { GameEventsService } from './game-events.service.js';
 import {
   PendingInviteInfo,
   TableDetails,
@@ -25,7 +30,15 @@ import {
 /** All table routes require a logged-in user (no @Public here). */
 @Controller()
 export class TablesController {
-  constructor(private readonly tablesService: TablesService) {}
+  constructor(
+    private readonly tablesService: TablesService,
+    private readonly events: GameEventsService,
+  ) {}
+
+  @Sse('events')
+  eventsFor(@CurrentUser() user: AuthenticatedUser): Observable<MessageEvent> {
+    return this.events.stream(user.id);
+  }
 
   @Get('games/:slug/tables')
   listByGame(@Param('slug') slug: string): Promise<TableSummary[]> {
@@ -53,8 +66,9 @@ export class TablesController {
   join(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', TableIdPipe) id: number,
+    @Body() dto: ConfirmSeatDto,
   ): Promise<TableDetails> {
-    return this.tablesService.join(user.id, id);
+    return this.tablesService.join(user.id, id, dto?.entryFee);
   }
 
   @Post('tables/:id/action')
@@ -107,8 +121,9 @@ export class TablesController {
   acceptInvite(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ConfirmSeatDto,
   ): Promise<TableDetails> {
-    return this.tablesService.acceptInvite(user.id, id);
+    return this.tablesService.acceptInvite(user.id, id, dto?.entryFee);
   }
 
   /** Declining closes the invite. */

@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { TablePlayer } from '../tables/table-player.entity.js';
 import { Table } from '../tables/table.entity.js';
+import { GameResult } from '../tables/game-result.entity.js';
 import { isUniqueViolation } from './db-errors.js';
 import { UpdateProfileDto } from './dto/update-profile.dto.js';
 import { User } from './user.entity.js';
@@ -18,6 +19,7 @@ export interface UserProfile {
   displayName: string;
   balance: number;
   createdAt: Date;
+  role: 'player';
 }
 
 /** A table the user currently holds a seat at. */
@@ -35,6 +37,8 @@ export interface UserStats {
   tablesCreated: number;
   /** Tables this user is sitting at right now — rejoin straight from the profile. */
   seatedTables: SeatedTableSummary[];
+  recentResults: GameResult[];
+  gameStats: { gameSlug: string; played: number; won: number; drawn: number }[];
 }
 
 export interface UserProfileWithStats extends UserProfile {
@@ -48,6 +52,7 @@ export function toProfile(user: User): UserProfile {
     displayName: user.displayName,
     balance: user.balance,
     createdAt: user.createdAt,
+    role: 'player',
   };
 }
 
@@ -66,6 +71,8 @@ export class UsersService {
     private readonly tablesRepository: Repository<Table>,
     @InjectRepository(TablePlayer)
     private readonly tablePlayersRepository: Repository<TablePlayer>,
+    @InjectRepository(GameResult)
+    private readonly gameResultsRepository: Repository<GameResult>,
   ) {}
 
   findByPhoneNumber(phoneNumber: string): Promise<User | null> {
@@ -123,13 +130,27 @@ export class UsersService {
   }
 
   async stats(id: number): Promise<UserStats> {
-    const [tablesCreated, seats] = await Promise.all([
+    const [tablesCreated, seats, recentResults, totals] = await Promise.all([
       this.tablesRepository.count({ where: { createdBy: { id } } }),
       this.tablePlayersRepository.find({
         where: { userId: id },
         relations: { table: { game: true } },
         order: { joinedAt: 'DESC' },
       }),
+      this.gameResultsRepository.find({
+        where: { userId: id },
+        order: { finishedAt: 'DESC', id: 'DESC' },
+        take: 20,
+      }),
+      this.gameResultsRepository
+        .createQueryBuilder('result')
+        .select('result.gameSlug', 'gameSlug')
+        .addSelect('COUNT(*)', 'played')
+        .addSelect("COUNT(*) FILTER (WHERE result.outcome = 'won')", 'won')
+        .addSelect("COUNT(*) FILTER (WHERE result.outcome = 'draw')", 'drawn')
+        .where('result.userId = :id', { id })
+        .groupBy('result.gameSlug')
+        .getRawMany<{ gameSlug: string; played: string; won: string; drawn: string }>(),
     ]);
 
     const takenRows = seats.length
@@ -149,6 +170,13 @@ export class UsersService {
 
     return {
       tablesCreated,
+      recentResults,
+      gameStats: totals.map((row) => ({
+        gameSlug: row.gameSlug,
+        played: Number(row.played),
+        won: Number(row.won),
+        drawn: Number(row.drawn),
+      })),
       seatedTables: seats.map((seat) => ({
         id: seat.table.id,
         name: seat.table.name,

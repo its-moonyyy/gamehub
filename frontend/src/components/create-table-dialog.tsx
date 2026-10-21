@@ -1,5 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Loader2Icon } from 'lucide-react'
+import { motion } from 'motion/react'
 import { useEffect, useMemo, useState } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { toast } from 'sonner'
@@ -30,25 +31,34 @@ import {
 import { getTableDefaults } from '@/lib/preferences'
 import type { Game, TableDetails } from '@/lib/types'
 
-function createTableSchema(maxSeats: number) {
+function createTableSchema(maxSeats: number, isPoker: boolean) {
   return z
     .object({
-      name: z
-        .string()
-        .min(2, 'Table name must be at least 2 characters')
-        .max(40, 'Table name must be at most 40 characters'),
       maxSeats: z.coerce
         .number()
         .int()
         .min(2, 'At least 2 seats')
         .max(maxSeats, `At most ${maxSeats} seats`),
+      entryFee: z.coerce.number()
+        .min(0.01, 'At least $0.01')
+        .max(1_000_000, 'At most $1,000,000')
+        .refine((value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-6, 'Use at most two decimals'),
       timeControl: z.string(),
+      turnSeconds: z.coerce
+        .number()
+        .int('Use whole seconds')
+        .min(10, 'At least 10 seconds')
+        .max(300, 'At most 300 seconds'),
       smallBlind: z.coerce.number().min(0).max(1_000_000),
       bigBlind: z.coerce.number().min(0).max(1_000_000),
     })
     .refine((values) => values.bigBlind >= values.smallBlind, {
       message: 'Big blind must be at least the small blind',
       path: ['bigBlind'],
+    })
+    .refine((values) => !isPoker || values.entryFee >= values.bigBlind, {
+      message: 'The starting stack must cover the big blind',
+      path: ['entryFee'],
     })
 }
 
@@ -65,28 +75,29 @@ export function CreateTableDialog({
   onOpenChange,
   onCreated,
 }: CreateTableDialogProps) {
-  const { user } = useAuth()
+  const { refreshUser } = useAuth()
   const [submitting, setSubmitting] = useState(false)
   const hasBlinds = game.slug === 'poker'
   const isChess = game.slug === 'chess'
 
-  const schema = useMemo(() => createTableSchema(game.maxSeats), [game.maxSeats])
+  const schema = useMemo(() => createTableSchema(game.maxSeats, hasBlinds), [game.maxSeats, hasBlinds])
   type CreateTableValues = z.infer<typeof schema>
 
   const firstValues = useMemo<CreateTableValues>(() => {
     // Settings-page defaults prefill the dialog; the game still caps the seats.
     const defaults = getTableDefaults()
     return {
-      name: `${user?.displayName ?? 'My'} table`,
       maxSeats: Math.max(
         2,
         Math.min(defaults.maxSeats ?? game.maxSeats, game.maxSeats),
       ),
+      entryFee: hasBlinds ? (defaults.bigBlind ?? 2) * 100 : 1,
       timeControl: DEFAULT_CHESS_TIME_CONTROL,
+      turnSeconds: game.slug === 'poker' ? 60 : 45,
       smallBlind: defaults.smallBlind ?? 1,
       bigBlind: defaults.bigBlind ?? 2,
     }
-  }, [game.maxSeats, user?.displayName])
+  }, [game.maxSeats, game.slug, hasBlinds])
 
   const form = useForm<CreateTableValues>({
     resolver: zodResolver(schema),
@@ -103,7 +114,7 @@ export function CreateTableDialog({
     setSubmitting(true)
     try {
       const created = await tablesApi.create(game.slug, {
-        name: values.name.trim(),
+        entryFee: Math.round(values.entryFee * 100),
         maxSeats: values.maxSeats,
         ...(hasBlinds
           ? {
@@ -111,8 +122,11 @@ export function CreateTableDialog({
               bigBlind: Math.round(values.bigBlind * 100),
             }
           : {}),
-        ...(isChess ? { timeControl: values.timeControl } : {}),
+        ...(isChess
+          ? { timeControl: values.timeControl }
+          : { turnSeconds: values.turnSeconds }),
       })
+      void refreshUser().catch(() => {})
       toast.success(`Table "${created.name}" created — you have seat 1.`)
       onOpenChange(false)
       onCreated(created)
@@ -133,23 +147,33 @@ export function CreateTableDialog({
         <DialogHeader>
           <DialogTitle>Create a table</DialogTitle>
           <DialogDescription>
-            Open your own {game.name} table. Every seat goes to a real player —
-            no bots.
+            Open your own {game.name} table. Its unique name is generated from
+            the game and your display name. Every seat goes to a real player.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={form.handleSubmit(onSubmit)} noValidate>
           <FieldGroup>
-            <Field data-invalid={Boolean(errors.name)}>
-              <FieldLabel htmlFor="table-name">Table name</FieldLabel>
+            <Field data-invalid={Boolean(errors.entryFee)}>
+              <FieldLabel htmlFor="entry-fee">
+                {hasBlinds ? 'Starting stack / entry price ($)' : 'Entry price ($)'}
+              </FieldLabel>
               <Input
-                id="table-name"
-                maxLength={40}
-                aria-invalid={Boolean(errors.name)}
-                {...form.register('name')}
+                id="entry-fee"
+                type="number"
+                inputMode="decimal"
+                min={0.01}
+                max={1_000_000}
+                step={0.01}
+                aria-invalid={Boolean(errors.entryFee)}
+                {...form.register('entryFee')}
               />
-              {errors.name && <FieldError errors={[errors.name]} />}
+              <p className="text-xs text-muted-foreground">
+                {hasBlinds
+                  ? 'Charged when you take a seat. Your remaining chips return to your wallet when you leave.'
+                  : 'Charged once when you take a seat, including the creator.'}
+              </p>
+              {errors.entryFee && <FieldError errors={[errors.entryFee]} />}
             </Field>
-
             {hasBlinds && (
               <div className="grid grid-cols-2 gap-3">
                 <Field data-invalid={Boolean(errors.smallBlind)}>
@@ -185,11 +209,11 @@ export function CreateTableDialog({
 
             {isChess && (
               <Field>
-                <FieldLabel htmlFor="time-control">Clock</FieldLabel>
+                <FieldLabel htmlFor="time-control">Time per player</FieldLabel>
                 <div
                   id="time-control"
                   role="radiogroup"
-                  aria-label="Clock"
+                  aria-label="Time per player"
                   className="grid grid-cols-4 gap-2"
                 >
                   {CHESS_TIME_CONTROLS.map((control) => {
@@ -219,6 +243,28 @@ export function CreateTableDialog({
               </Field>
             )}
 
+            {!isChess && (
+              <Field data-invalid={Boolean(errors.turnSeconds)}>
+                <FieldLabel htmlFor="turn-seconds">
+                  Time per player turn (seconds)
+                </FieldLabel>
+                <Input
+                  id="turn-seconds"
+                  type="number"
+                  inputMode="numeric"
+                  min={10}
+                  max={300}
+                  step={1}
+                  aria-invalid={Boolean(errors.turnSeconds)}
+                  {...form.register('turnSeconds')}
+                />
+                <p className="text-xs text-muted-foreground">
+                  The timer restarts on each turn.
+                </p>
+                {errors.turnSeconds && <FieldError errors={[errors.turnSeconds]} />}
+              </Field>
+            )}
+
             <Field data-invalid={Boolean(errors.maxSeats)}>
               <FieldLabel htmlFor="max-seats">Seats</FieldLabel>
               <Input
@@ -242,8 +288,8 @@ export function CreateTableDialog({
                 Cancel
               </Button>
               <Button type="submit" disabled={submitting}>
-                {submitting && <Loader2Icon className="animate-spin" />}
-                Create &amp; take a seat
+                {submitting && <motion.span className="inline-flex" animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}><Loader2Icon /></motion.span>}
+                Create &amp; pay entry
               </Button>
             </DialogFooter>
           </FieldGroup>

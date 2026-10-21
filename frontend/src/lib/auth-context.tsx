@@ -26,6 +26,7 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(() => Boolean(getToken()))
+  const playerId = user?.role === 'player' ? user.id : null
 
   useEffect(() => {
     if (!getToken()) return
@@ -45,6 +46,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       cancelled = true
     }
   }, [])
+
+  // Keep the shared virtual balance current after admin credits and on return.
+  useEffect(() => {
+    if (playerId === null) return
+    const refresh = () => {
+      void authApi.me().then(setUser).catch(() => {
+        if (!getToken()) setUser(null)
+      })
+    }
+    const interval = window.setInterval(() => {
+      if (!document.hidden) refresh()
+    }, 30_000)
+    window.addEventListener('focus', refresh)
+    return () => {
+      window.clearInterval(interval)
+      window.removeEventListener('focus', refresh)
+    }
+  }, [playerId])
 
   const login = useCallback(async (input: LoginInput) => {
     const { accessToken, user: profile } = await authApi.login(input)

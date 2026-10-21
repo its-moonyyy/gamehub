@@ -5,8 +5,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { randomBytes } from 'node:crypto';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Repository } from 'typeorm';
+import { DataSource, In, Repository, type EntityManager } from 'typeorm';
 import { Game } from '../games/game.entity.js';
 import { FriendsService } from '../friends/friends.service.js';
 import { isUniqueViolation } from '../users/db-errors.js';
@@ -111,7 +112,11 @@ import { TableActionDto } from './dto/table-action.dto.js';
 import { TableInvite } from './table-invite.entity.js';
 import { TablePlayer } from './table-player.entity.js';
 import { Table } from './table.entity.js';
+import { GameResult } from './game-result.entity.js';
+import { completedGame } from './game-result.js';
+import { GameEventsService } from './game-events.service.js';
 import { seatStatus, type SeatStatus } from '../users/presence.js';
+import { WalletEntry } from '../wallet/wallet-entry.entity.js';
 
 /** Blinds and buy-in used when a table was created without stakes. */
 const DEFAULT_BIG_BLIND = 200;
@@ -124,6 +129,28 @@ const LUDO_TURN_MS = 45_000;
 const DOMINOES_TURN_MS = 45_000;
 /** How long an Uno player has to act before the server plays for them. */
 const UNO_TURN_MS = 45_000;
+const TABLE_NAME_LIMIT = 40;
+const TABLE_NAME_CODE_BYTES = 6; // Eight base64url characters.
+const TABLE_NAME_ATTEMPTS = 5;
+
+function tableNameBase(gameSlug: string, displayName: string): string {
+  const prefix = (gameSlug === 'chess' ? 'echec' : gameSlug).slice(
+    0,
+    TABLE_NAME_LIMIT - 14,
+  );
+  const username = displayName
+    .normalize('NFKC')
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, '_')
+    .replace(/^_+|_+$/g, '');
+  const maxUsernameLength = TABLE_NAME_LIMIT - prefix.length - 10;
+  const shortened = Array.from(username)
+    .slice(0, maxUsernameLength)
+    .join('')
+    .replace(/_+$/g, '');
+  return `${prefix}-${shortened || 'user'}`;
+}
 
 export interface TableSeatInfo {
   seatIndex: number;
@@ -366,10 +393,13 @@ export interface TableSummary {
   id: number;
   name: string;
   maxSeats: number;
+  entryFee: number | null;
   smallBlind: number | null;
   bigBlind: number | null;
   /** Chess only: the clock the creator picked, so the lobby can show it. */
   timeControl: string | null;
+  /** Seconds per turn for non-chess games. */
+  turnSeconds: number | null;
   creatorName: string;
   seatedCount: number;
   seatedUserIds: number[];
@@ -387,6 +417,7 @@ export interface TableInviteInfo {
   inviterName: string;
   seatedCount: number;
   maxSeats: number;
+  entryFee: number | null;
   createdAt: Date;
 }
 
@@ -401,6 +432,7 @@ export interface TableDetails {
   id: number;
   name: string;
   maxSeats: number;
+  entryFee: number | null;
   smallBlind: number | null;
   bigBlind: number | null;
   gameSlug: string;
@@ -425,6 +457,7 @@ export class TablesService {
     private readonly usersRepository: Repository<User>,
     private readonly friendsService: FriendsService,
     private readonly dataSource: DataSource,
+    private readonly events: GameEventsService,
   ) {}
 
   async listByGameSlug(slug: string): Promise<TableSummary[]> {
@@ -439,6 +472,7 @@ export class TablesService {
       id: table.id,
       name: table.name,
       maxSeats: table.maxSeats,
+      entryFee: table.entryFee,
       smallBlind: table.smallBlind,
       bigBlind: table.bigBlind,
       // Chess tables carry their clock instead of blinds.
@@ -447,6 +481,10 @@ export class TablesService {
           ? ((table.state as ChessState | null)?.timeControl ??
             DEFAULT_CHESS_TIME_CONTROL)
           : null,
+      turnSeconds:
+        game.slug === 'chess'
+          ? null
+          : (table.turnSeconds ?? this.defaultTurnMs(game.slug) / 1000),
       creatorName: table.createdBy.displayName,
       seatedCount: table.players.length,
       seatedUserIds: table.players.map((player) => player.userId),
@@ -471,6 +509,10 @@ export class TablesService {
       );
     }
 
+    if (game.slug === 'chess' && dto.turnSeconds != null) {
+      throw new BadRequestException('Chess uses timeControl for each player');
+    }
+
     const smallBlind = dto.smallBlind ?? null;
     const bigBlind = dto.bigBlind ?? null;
     if (smallBlind != null && bigBlind != null && bigBlind < smallBlind) {
@@ -478,33 +520,62 @@ export class TablesService {
         'bigBlind must be greater than or equal to smallBlind',
       );
     }
+    if (game.slug === 'poker' && dto.entryFee < (bigBlind ?? DEFAULT_BIG_BLIND)) {
+      throw new BadRequestException('Poker buy-in must cover the big blind');
+    }
 
-    const table = await this.tablesRepository.save(
-      this.tablesRepository.create({
-        gameId: game.id,
-        name: dto.name.trim(),
-        maxSeats,
-        smallBlind,
-        bigBlind,
-        // Chess picks its clock at creation, so the waiting table can already
-        // show it. Every other game builds its state on the first action.
-        state:
-          game.slug === 'chess'
-            ? createChessState(dto.timeControl ?? DEFAULT_CHESS_TIME_CONTROL)
-            : null,
-        createdBy: { id: userId },
-      }),
-    );
+    const creator = await this.usersRepository.findOneBy({ id: userId });
+    if (!creator) {
+      throw new NotFoundException('Account no longer exists');
+    }
+    const nameBase = tableNameBase(game.slug, creator.displayName);
+    let table: Table | null = null;
+    for (let attempt = 0; attempt < TABLE_NAME_ATTEMPTS; attempt++) {
+      const nameCode = randomBytes(TABLE_NAME_CODE_BYTES).toString('base64url');
+      const name = `${nameBase}-${nameCode}`;
+      // Legacy tables have no code, so check their names before reserving ours.
+      if (await this.tablesRepository.exists({ where: { name } })) continue;
+      try {
+        table = await this.dataSource.transaction(async (manager) => {
+          const created = await manager.save(Table, manager.create(Table, {
+            gameId: game.id,
+            name,
+            nameCode,
+            maxSeats,
+            entryFee: dto.entryFee,
+            turnSeconds:
+              game.slug === 'chess'
+                ? null
+                : (dto.turnSeconds ?? this.defaultTurnMs(game.slug) / 1000),
+            smallBlind,
+            bigBlind,
+            // Chess tables carry their clock before the first action.
+            state:
+              game.slug === 'chess'
+                ? createChessState(dto.timeControl ?? DEFAULT_CHESS_TIME_CONTROL)
+                : null,
+            createdBy: { id: userId },
+          }));
+          const seat = await manager.save(TablePlayer, manager.create(TablePlayer, {
+            tableId: created.id,
+            userId,
+            seatIndex: 0,
+          }));
+          await this.chargeForSeat(manager, userId, dto.entryFee, seat.id);
+          return created;
+        });
+        break;
+      } catch (error) {
+        if (!isUniqueViolation(error)) throw error;
+      }
+    }
+    if (!table) {
+      throw new ConflictException(
+        'Could not generate a unique table name. Please try again.',
+      );
+    }
 
-    // The creator takes the first seat.
-    await this.tablePlayersRepository.save(
-      this.tablePlayersRepository.create({
-        tableId: table.id,
-        userId,
-        seatIndex: 0,
-      }),
-    );
-
+    this.events.table(game.slug, table.id);
     return this.getDetails(table.id, userId);
   }
 
@@ -574,41 +645,60 @@ export class TablesService {
     return this.buildDetails(table, seats, viewerUserId);
   }
 
-  async join(userId: number, tableId: number): Promise<TableDetails> {
-    const table = await this.tablesRepository.findOneBy({ id: tableId });
-    if (!table) {
-      throw new NotFoundException('This table no longer exists');
-    }
+  async join(userId: number, tableId: number, confirmedEntryFee?: number): Promise<TableDetails> {
+    const joined = await this.dataSource.transaction(async (manager) => {
+      const table = await manager.findOne(Table, {
+        where: { id: tableId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!table) throw new NotFoundException('This table no longer exists');
+      // Rejoining an existing seat never charges twice.
+      const existing = await manager.findOneBy(TablePlayer, { tableId, userId });
+      if (existing) return null;
+      if (table.entryFee != null && confirmedEntryFee !== table.entryFee) {
+        throw new BadRequestException('Confirm the current entry price before joining');
+      }
+      const game = await manager.findOneBy(Game, { id: table.gameId });
+      if (game?.slug === 'poker' && table.state) {
+        const state = table.state as GameState;
+        normalizeState(state);
+        if (state.players.some((player) => player.userId === userId)) {
+          if (isBettingPhase(state)) {
+            throw new ConflictException('Wait for this hand to finish before buying in again');
+          }
+          // A player who left mid-hand already cashed out their old stack.
+          state.players = state.players.filter((player) => player.userId !== userId);
+          state.ready = state.ready.filter((readyId) => readyId !== userId);
+          await manager.update(Table, tableId, { state });
+        }
+      }
 
-    // Joining twice is fine — you just keep your seat.
-    const existing = await this.tablePlayersRepository.findOneBy({
-      tableId,
-      userId,
+      const taken = await manager.findBy(TablePlayer, { tableId });
+      if (taken.length >= table.maxSeats) {
+        throw new ConflictException('This table is full');
+      }
+      const takenIndexes = new Set(taken.map((seat) => seat.seatIndex));
+      let seatIndex = 0;
+      while (takenIndexes.has(seatIndex)) seatIndex += 1;
+
+      const seat = await manager.save(TablePlayer, manager.create(TablePlayer, {
+        tableId, userId, seatIndex,
+      }));
+      if (table.entryFee) {
+        await this.chargeForSeat(manager, userId, table.entryFee, seat.id);
+      }
+      return table.gameId;
     });
-    if (existing) {
-      return this.getDetails(tableId, userId);
+
+    if (joined) {
+      const game = await this.gamesRepository.findOneBy({ id: joined });
+      if (game) this.events.table(game.slug, tableId);
     }
-
-    const taken = await this.tablePlayersRepository.findBy({ tableId });
-    if (taken.length >= table.maxSeats) {
-      throw new ConflictException('This table is full');
-    }
-
-    const takenIndexes = new Set(taken.map((seat) => seat.seatIndex));
-    let seatIndex = 0;
-    while (takenIndexes.has(seatIndex)) {
-      seatIndex += 1;
-    }
-
-    await this.tablePlayersRepository.save(
-      this.tablePlayersRepository.create({ tableId, userId, seatIndex }),
-    );
-
     return this.getDetails(tableId, userId);
   }
 
   async leave(userId: number, tableId: number): Promise<void> {
-    await this.dataSource.transaction(async (manager) => {
+    const slug = await this.dataSource.transaction(async (manager) => {
       // The slug decides which engine cleans up the state; load it before
       // taking the row lock (Postgres refuses FOR UPDATE on outer joins).
       const meta = await manager.findOne(Table, {
@@ -629,8 +719,12 @@ export class TablesService {
       if (!seat) {
         return;
       }
+      const participantIds = (await manager.findBy(TablePlayer, { tableId }))
+        .map((player) => player.userId);
+      let pokerPayout = meta.game.slug === 'poker' ? (table.entryFee ?? 0) : 0;
 
       if (table.state) {
+        const previousResult = completedGame(meta.game.slug, table.state);
         const now = Date.now();
         if (meta.game.slug === 'ludo') {
           const state = table.state as LudoState;
@@ -664,6 +758,9 @@ export class TablesService {
           if (isBettingPhase(state)) {
             forceFold(state, userId, now);
           }
+          if (table.entryFee != null) {
+            pokerPayout = state.players.find((player) => player.userId === userId)?.stack ?? table.entryFee;
+          }
           if (state.phase === 'waiting') {
             state.players = state.players.filter((p) => p.userId !== userId);
           }
@@ -671,6 +768,31 @@ export class TablesService {
           table.state = state;
           await manager.update(Table, tableId, { state });
         }
+        const nextResult = completedGame(meta.game.slug, table.state);
+        await this.saveCompletedGame(
+          manager, table, meta.game.slug,
+          nextResult && (!previousResult || nextResult.gameNumber !== previousResult.gameNumber)
+            ? participantIds : [],
+        );
+      }
+
+      if (pokerPayout > 0) {
+        const user = await manager.findOne(User, {
+          where: { id: userId },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (!user) throw new NotFoundException('Account no longer exists');
+        if (user.balance > 2_147_483_647 - pokerPayout) {
+          throw new BadRequestException('Poker payout would exceed the balance limit');
+        }
+        user.balance += pokerPayout;
+        await manager.save(user);
+        await manager.save(WalletEntry, manager.create(WalletEntry, {
+          userId,
+          amount: pokerPayout,
+          kind: 'game_payout',
+          reference: `seat:${seat.id}:payout`,
+        }));
       }
 
       await manager.delete(TablePlayer, { id: seat.id });
@@ -680,7 +802,9 @@ export class TablesService {
       if (remaining === 0) {
         await manager.delete(Table, { id: tableId });
       }
+      return meta.game.slug;
     });
+    if (slug) this.events.table(slug, tableId);
   }
 
   /**
@@ -742,6 +866,7 @@ export class TablesService {
       throw error;
     }
 
+    this.events.invite(inviteeId);
     return this.listTableInvites(viewerId, tableId);
   }
 
@@ -820,6 +945,7 @@ export class TablesService {
       inviterName: invite.inviter.displayName,
       seatedCount: seatedCounts.get(invite.tableId) ?? 1,
       maxSeats: invite.table.maxSeats,
+      entryFee: invite.table.entryFee,
       createdAt: invite.createdAt,
     }));
   }
@@ -828,6 +954,7 @@ export class TablesService {
   async acceptInvite(
     viewerId: number,
     inviteId: number,
+    confirmedEntryFee?: number,
   ): Promise<TableDetails> {
     const invite = await this.tableInvitesRepository.findOneBy({
       id: inviteId,
@@ -837,8 +964,10 @@ export class TablesService {
       throw new NotFoundException('This invitation is no longer open');
     }
 
-    const details = await this.join(viewerId, invite.tableId);
+    const details = await this.join(viewerId, invite.tableId, confirmedEntryFee);
     await this.tableInvitesRepository.delete({ id: invite.id });
+
+    this.events.invite(viewerId);
 
     return details;
   }
@@ -852,6 +981,7 @@ export class TablesService {
     if (!result.affected) {
       throw new NotFoundException('This invitation is no longer open');
     }
+    this.events.invite(viewerId);
   }
 
   /**
@@ -863,7 +993,7 @@ export class TablesService {
     tableId: number,
     dto: TableActionDto,
   ): Promise<TableDetails> {
-    await this.dataSource.transaction(async (manager) => {
+    const slug = await this.dataSource.transaction(async (manager) => {
       const meta = await manager.findOne(Table, {
         where: { id: tableId },
         relations: { game: true },
@@ -902,9 +1032,42 @@ export class TablesService {
       }
 
       await manager.update(Table, tableId, { state: table.state });
+      await this.saveCompletedGame(manager, table, meta.game.slug);
+      return meta.game.slug;
     });
 
+    this.events.table(slug, tableId);
     return this.getDetails(tableId, userId);
+  }
+
+  private async saveCompletedGame(
+    manager: EntityManager,
+    table: Table,
+    slug: string,
+    fallbackParticipantIds: number[] = [],
+  ): Promise<void> {
+    const result = completedGame(slug, table.state);
+    if (!result || result.gameNumber < 1) return;
+    const participantIds = [...new Set([...result.participantIds, ...fallbackParticipantIds])];
+    if (participantIds.length < 2) return;
+    const people = await manager.findBy(User, { id: In(participantIds) });
+    const names = new Map(people.map((person) => [person.id, person.displayName]));
+    await manager
+      .createQueryBuilder()
+      .insert()
+      .into(GameResult)
+      .values(participantIds.map((userId) => ({
+        userId,
+        tableId: table.id,
+        tableName: table.name,
+        gameSlug: slug,
+        gameNumber: result.gameNumber,
+        outcome: result.draw ? 'draw' as const : result.winnerIds.includes(userId) ? 'won' as const : 'lost' as const,
+        summary: result.summary,
+        opponentNames: participantIds.filter((id) => id !== userId).map((id) => names.get(id) ?? 'Player'),
+      })))
+      .orIgnore()
+      .execute();
   }
 
   private actPoker(
@@ -929,6 +1092,9 @@ export class TablesService {
       if (isBettingPhase(state)) {
         throw new BadRequestException('A hand is already running');
       }
+      if (table.entryFee != null && state.players.some((player) => player.userId === userId && player.stack <= 0)) {
+        throw new BadRequestException('No chips left. Leave and rejoin to buy in again');
+      }
       markReady(state, userId);
       const blinds = this.blindsFor(table);
       if (everyoneReady(state, seats.map((seat) => seat.userId))) {
@@ -941,7 +1107,7 @@ export class TablesService {
             smallBlind: blinds.smallBlind,
             bigBlind: blinds.bigBlind,
             buyIn: blinds.buyIn,
-            turnMs: TURN_MS,
+            turnMs: this.turnMsFor(table, 'poker'),
             now,
           });
         } catch (error) {
@@ -993,7 +1159,7 @@ export class TablesService {
               userId: seat.userId,
               seatIndex: seat.seatIndex,
             })),
-            turnMs: LUDO_TURN_MS,
+            turnMs: this.turnMsFor(table, 'ludo'),
             now,
           });
         }
@@ -1048,7 +1214,7 @@ export class TablesService {
               userId: seat.userId,
               seatIndex: seat.seatIndex,
             })),
-            turnMs: DOMINOES_TURN_MS,
+            turnMs: this.turnMsFor(table, 'dominoes'),
             now,
           });
         }
@@ -1189,7 +1355,7 @@ export class TablesService {
               userId: seat.userId,
               seatIndex: seat.seatIndex,
             })),
-            turnMs: UNO_TURN_MS,
+            turnMs: this.turnMsFor(table, 'uno'),
             now,
           });
         }
@@ -1237,7 +1403,10 @@ export class TablesService {
       normalizeState(state);
       mutate(state);
       await manager.update(Table, tableId, { state });
+      table.state = state;
+      await this.saveCompletedGame(manager, table, 'poker');
     });
+    this.events.table('poker', tableId);
   }
 
   /** Plays one timeout step for a Ludo game whose clock ran out. */
@@ -1253,7 +1422,9 @@ export class TablesService {
       const state = table.state as LudoState;
       tickLudo(state, Date.now());
       await manager.update(Table, tableId, { state });
+      await this.saveCompletedGame(manager, table, 'ludo');
     });
+    this.events.table('ludo', tableId);
   }
 
   /** Plays one timeout step for a Dominoes round whose clock ran out. */
@@ -1269,7 +1440,9 @@ export class TablesService {
       const state = table.state as DominoesState;
       tickDominoes(state, Date.now());
       await manager.update(Table, tableId, { state });
+      await this.saveCompletedGame(manager, table, 'dominoes');
     });
+    this.events.table('dominoes', tableId);
   }
 
   /** Ends a chess game whose mover's clock ran out. */
@@ -1286,7 +1459,9 @@ export class TablesService {
       normalizeChessState(state);
       tickChess(state, Date.now());
       await manager.update(Table, tableId, { state });
+      await this.saveCompletedGame(manager, table, 'chess');
     });
+    this.events.table('chess', tableId);
   }
 
   /** Plays one timeout step for an Uno game whose clock ran out. */
@@ -1302,7 +1477,9 @@ export class TablesService {
       const state = table.state as UnoState;
       tickUno(state, Date.now());
       await manager.update(Table, tableId, { state });
+      await this.saveCompletedGame(manager, table, 'uno');
     });
+    this.events.table('uno', tableId);
   }
 
   private buildDetails(
@@ -1364,6 +1541,7 @@ export class TablesService {
       id: table.id,
       name: table.name,
       maxSeats: table.maxSeats,
+      entryFee: table.entryFee,
       smallBlind: table.smallBlind,
       bigBlind: table.bigBlind,
       gameSlug: table.game.slug,
@@ -1431,6 +1609,7 @@ export class TablesService {
       id: table.id,
       name: table.name,
       maxSeats: table.maxSeats,
+      entryFee: table.entryFee,
       smallBlind: table.smallBlind,
       bigBlind: table.bigBlind,
       gameSlug: table.game.slug,
@@ -1510,6 +1689,7 @@ export class TablesService {
       id: table.id,
       name: table.name,
       maxSeats: table.maxSeats,
+      entryFee: table.entryFee,
       smallBlind: table.smallBlind,
       bigBlind: table.bigBlind,
       gameSlug: table.game.slug,
@@ -1612,6 +1792,7 @@ export class TablesService {
       id: table.id,
       name: table.name,
       maxSeats: table.maxSeats,
+      entryFee: table.entryFee,
       smallBlind: table.smallBlind,
       bigBlind: table.bigBlind,
       gameSlug: table.game.slug,
@@ -1690,6 +1871,7 @@ export class TablesService {
       id: table.id,
       name: table.name,
       maxSeats: table.maxSeats,
+      entryFee: table.entryFee,
       smallBlind: table.smallBlind,
       bigBlind: table.bigBlind,
       gameSlug: table.game.slug,
@@ -1732,6 +1914,19 @@ export class TablesService {
     return table;
   }
 
+  private defaultTurnMs(slug: string): number {
+    if (slug === 'ludo') return LUDO_TURN_MS;
+    if (slug === 'dominoes') return DOMINOES_TURN_MS;
+    if (slug === 'uno') return UNO_TURN_MS;
+    return TURN_MS;
+  }
+
+  private turnMsFor(table: Table, slug: string): number {
+    return table.turnSeconds != null
+      ? table.turnSeconds * 1000
+      : this.defaultTurnMs(slug);
+  }
+
   private blindsFor(table: Table): {
     smallBlind: number;
     bigBlind: number;
@@ -1745,8 +1940,32 @@ export class TablesService {
     return {
       smallBlind,
       bigBlind,
-      buyIn: bigBlind * BIG_BLINDS_PER_BUY_IN,
+      buyIn: table.entryFee ?? bigBlind * BIG_BLINDS_PER_BUY_IN,
     };
+  }
+
+  private async chargeForSeat(
+    manager: EntityManager,
+    userId: number,
+    amount: number,
+    seatId: number,
+  ): Promise<void> {
+    const user = await manager.findOne(User, {
+      where: { id: userId },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (!user) throw new NotFoundException('Account no longer exists');
+    if (user.balance < amount) {
+      throw new BadRequestException('Not enough credits to enter this table');
+    }
+    user.balance -= amount;
+    await manager.save(user);
+    await manager.save(WalletEntry, manager.create(WalletEntry, {
+      userId,
+      amount: -amount,
+      kind: 'game_stake',
+      reference: `seat:${seatId}:stake`,
+    }));
   }
 
   private errorMessage(error: unknown): string {

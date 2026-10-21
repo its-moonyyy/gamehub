@@ -23,8 +23,8 @@ describe('Seat presence (e2e)', () => {
   let tableId = 0;
 
   const suffix = (Date.now() % 10_000_000).toString().padStart(7, '0');
-  const phoneA = `+49171${suffix}`;
-  const phoneB = `+49172${suffix}`;
+  const phoneA = `+49224${suffix}`;
+  const phoneB = `+49225${suffix}`;
 
   const get = (path: string, token: string) =>
     request(app.getHttpServer())
@@ -88,16 +88,18 @@ describe('Seat presence (e2e)', () => {
     }).expect(201);
     tokenB = registerB.body.accessToken;
     idB = registerB.body.user.id;
+    await app.get(DataSource).getRepository(User).update({ id: In([idA, idB]) }, { balance: 1_000_000 });
 
     const created = await post('/games/poker/tables', tokenA, {
       name: 'E2E presence table',
+      entryFee: 20_000,
       maxSeats: 2,
       smallBlind: 1,
       bigBlind: 2,
     }).expect(201);
     tableId = created.body.id as number;
 
-    await post(`/tables/${tableId}/join`, tokenB).expect(201);
+    await post(`/tables/${tableId}/join`, tokenB, { entryFee: 20_000 }).expect(201);
   }, 30_000);
 
   afterAll(async () => {

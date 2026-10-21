@@ -23,8 +23,8 @@ describe('Dominoes tables (e2e)', () => {
   let tableId = 0;
 
   const suffix = (Date.now() % 10_000_000).toString().padStart(7, '0');
-  const phoneA = `+49175${suffix}`;
-  const phoneB = `+49176${suffix}`;
+  const phoneA = `+49220${suffix}`;
+  const phoneB = `+49221${suffix}`;
 
   const get = (path: string, token: string) =>
     request(app.getHttpServer())
@@ -72,6 +72,7 @@ describe('Dominoes tables (e2e)', () => {
     }).expect(201);
     tokenB = registerB.body.accessToken;
     idB = registerB.body.user.id;
+    await app.get(DataSource).getRepository(User).update({ id: In([idA, idB]) }, { balance: 1_000_000 });
   }, 30_000);
 
   afterAll(async () => {
@@ -93,7 +94,9 @@ describe('Dominoes tables (e2e)', () => {
   it('opens a Dominoes table and seats two players', async () => {
     const created = await post('/games/dominoes/tables', tokenA, {
       name: 'E2E Dominoes',
+      entryFee: 100,
       maxSeats: 2,
+      turnSeconds: 75,
     }).expect(201);
     tableId = created.body.id as number;
     expect(created.body.gameSlug).toBe('dominoes');
@@ -104,7 +107,7 @@ describe('Dominoes tables (e2e)', () => {
     // Dominoes tables carry no blinds.
     expect(created.body.smallBlind).toBeNull();
 
-    const joined = await post(`/tables/${tableId}/join`, tokenB).expect(201);
+    const joined = await post(`/tables/${tableId}/join`, tokenB, { entryFee: 100 }).expect(201);
     expect(joined.body.seats).toHaveLength(2);
     expect(
       joined.body.seats.every((seat: { stack: number }) => seat.stack === 0),
@@ -128,6 +131,9 @@ describe('Dominoes tables (e2e)', () => {
     const started = await post(`/tables/${tableId}/action`, tokenB, {
       type: 'ready',
     }).expect(201);
+    const remainingMs = started.body.game.turnDeadline - started.body.game.serverNow;
+    expect(remainingMs).toBeGreaterThan(74_000);
+    expect(remainingMs).toBeLessThanOrEqual(75_000);
     expect(started.body.game.phase).toBe('playing');
     expect(started.body.game.gameNumber).toBe(1);
     expect(started.body.game.chain).toEqual([]);

@@ -15,6 +15,8 @@ import { LoginDto } from './dto/login.dto.js';
 import { RegisterDto } from './dto/register.dto.js';
 import { Public } from './public.decorator.js';
 import type { UserProfile } from '../users/users.service.js';
+import type { AdminProfile } from './auth.service.js';
+import { AdminAllowed } from './admin-access.decorator.js';
 
 @Controller('auth')
 export class AuthController {
@@ -34,8 +36,9 @@ export class AuthController {
   }
 
   @Get('me')
-  me(@CurrentUser() user: AuthenticatedUser): Promise<UserProfile> {
-    return this.authService.profile(user.id);
+  @AdminAllowed()
+  me(@CurrentUser() user: AuthenticatedUser): Promise<UserProfile | AdminProfile> {
+    return this.authService.profile(user);
   }
 
   @Post('password')
