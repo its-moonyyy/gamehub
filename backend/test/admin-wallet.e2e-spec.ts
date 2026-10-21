@@ -7,7 +7,7 @@ import { DataSource } from 'typeorm';
 import { AppModule } from './../src/app.module.js';
 import { User } from './../src/users/user.entity.js';
 
-describe('Admin wallet credits (e2e)', () => {
+describe('Admin account management (e2e)', () => {
   let app: INestApplication<App>;
   let playerToken = '';
   let adminToken = '';
@@ -106,5 +106,58 @@ describe('Admin wallet credits (e2e)', () => {
     const ownCredits = credits.body.filter((entry: { userId: number }) => entry.userId === playerId);
     expect(ownCredits.map((entry: { amountCents: number }) => entry.amountCents).sort()).toEqual([250, 500]);
     expect(ownCredits.every((entry: { phoneNumber: string }) => entry.phoneNumber === phone)).toBe(true);
+  }, 15_000);
+
+  it('withdraws only available credits and records a negative wallet entry', async () => {
+    await post(`/admin/users/${playerId}/withdrawals`, playerToken, { amountCents: 100 }).expect(403);
+    await post(`/admin/users/${playerId}/withdrawals`, adminToken, { amountCents: 0 }).expect(400);
+    await post(`/admin/users/${playerId}/withdrawals`, adminToken, { amountCents: 751 }).expect(400);
+    await post('/admin/users/999999999/withdrawals', adminToken, { amountCents: 1 }).expect(404);
+
+    const withdrawal = await post(`/admin/users/${playerId}/withdrawals`, adminToken, {
+      amountCents: 200,
+    }).expect(201);
+    expect(withdrawal.body).toMatchObject({
+      userId: playerId,
+      kind: 'admin_withdrawal',
+      amountCents: -200,
+      balance: 550,
+    });
+    expect((await get('/auth/me', playerToken).expect(200)).body.balance).toBe(550);
+
+    const concurrent = await Promise.all([
+      post(`/admin/users/${playerId}/withdrawals`, adminToken, { amountCents: 400 }),
+      post(`/admin/users/${playerId}/withdrawals`, adminToken, { amountCents: 400 }),
+    ]);
+    expect(concurrent.map((response) => response.status).sort((a, b) => a - b)).toEqual([201, 400]);
+    expect((await get('/auth/me', playerToken).expect(200)).body.balance).toBe(150);
+
+    const entries = (await get('/admin/adjustments', adminToken).expect(200)).body;
+    const ownEntries = entries.filter((entry: { userId: number }) => entry.userId === playerId);
+    expect(ownEntries.map((entry: { amountCents: number }) => entry.amountCents).sort((a: number, b: number) => a - b))
+      .toEqual([-400, -200, 250, 500]);
+    const credits = (await get('/admin/credits', adminToken).expect(200)).body;
+    expect(credits.every((entry: { kind: string }) => entry.kind === 'admin_credit')).toBe(true);
+  }, 15_000);
+
+  it('resets a player password without exposing it and revokes prior sessions', async () => {
+    const path = `/admin/users/${playerId}/password-reset`;
+    await post(path, playerToken, { newPassword: 'new-fixture-password' }).expect(403);
+    await post(path, adminToken, { newPassword: 'short' }).expect(400);
+    await post(path, adminToken, { newPassword: 'player-fixture-password' }).expect(400);
+    await post('/admin/users/999999999/password-reset', adminToken, {
+      newPassword: 'new-fixture-password',
+    }).expect(404);
+    await post(path, adminToken, { newPassword: 'new-fixture-password' }).expect(204);
+
+    await get('/auth/me', playerToken).expect(401);
+    await post('/auth/login', '', { phoneNumber: phone, password: 'player-fixture-password' }).expect(401);
+    const login = await post('/auth/login', '', {
+      phoneNumber: phone,
+      password: 'new-fixture-password',
+    }).expect(200);
+    expect(login.body.user).toMatchObject({ id: playerId, role: 'player' });
+    expect(login.body.user).not.toHaveProperty('passwordHash');
+    await get('/auth/me', login.body.accessToken).expect(200);
   }, 15_000);
 });

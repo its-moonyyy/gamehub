@@ -15,12 +15,13 @@ export interface AdminUserInfo {
   balance: number
 }
 
-export interface AdminCreditInfo {
+export interface AdminAdjustmentInfo {
   id: number
   userId: number
   phoneNumber: string
   displayName: string
   amountCents: number
+  kind: 'admin_credit' | 'admin_withdrawal'
   balance: number
   createdAt: string
 }

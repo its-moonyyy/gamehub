@@ -16,6 +16,10 @@ export class User {
   @Column()
   passwordHash: string;
 
+  /** Incremented after an admin reset to revoke previously issued player tokens. */
+  @Column({ type: 'integer', default: 0 })
+  sessionVersion: number;
+
   @Column({ length: 60 })
   displayName: string;
 

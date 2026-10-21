@@ -1,7 +1,7 @@
 import axios from 'axios'
 import type {
   ChessPromotion,
-  AdminCreditInfo,
+  AdminAdjustmentInfo,
   AdminUserInfo,
   DominoesEnd,
   FriendsOverview,
@@ -136,17 +136,29 @@ export const adminApi = {
     return data
   },
 
-  async credits(): Promise<AdminCreditInfo[]> {
-    const { data } = await api.get<AdminCreditInfo[]>('/admin/credits')
+  async adjustments(): Promise<AdminAdjustmentInfo[]> {
+    const { data } = await api.get<AdminAdjustmentInfo[]>('/admin/adjustments')
     return data
   },
 
-  async credit(userId: number, amountCents: number): Promise<AdminCreditInfo> {
-    const { data } = await api.post<AdminCreditInfo>(
+  async credit(userId: number, amountCents: number): Promise<AdminAdjustmentInfo> {
+    const { data } = await api.post<AdminAdjustmentInfo>(
       `/admin/users/${userId}/credits`,
       { amountCents },
     )
     return data
+  },
+
+  async withdraw(userId: number, amountCents: number): Promise<AdminAdjustmentInfo> {
+    const { data } = await api.post<AdminAdjustmentInfo>(
+      `/admin/users/${userId}/withdrawals`,
+      { amountCents },
+    )
+    return data
+  },
+
+  async resetPassword(userId: number, newPassword: string): Promise<void> {
+    await api.post(`/admin/users/${userId}/password-reset`, { newPassword })
   },
 }
 

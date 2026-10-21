@@ -83,6 +83,14 @@ export class UsersService {
     return this.usersRepository.findOneBy({ id });
   }
 
+  async sessionVersion(id: number): Promise<number | null> {
+    const user = await this.usersRepository.findOne({
+      where: { id },
+      select: { id: true, sessionVersion: true },
+    });
+    return user?.sessionVersion ?? null;
+  }
+
   create(data: {
     phoneNumber: string;
     passwordHash: string;
@@ -92,8 +100,12 @@ export class UsersService {
     return this.usersRepository.save(user);
   }
 
-  save(user: User): Promise<User> {
-    return this.usersRepository.save(user);
+  async updatePasswordIfCurrent(id: number, currentHash: string, newHash: string): Promise<boolean> {
+    const result = await this.usersRepository.update(
+      { id, passwordHash: currentHash },
+      { passwordHash: newHash },
+    );
+    return result.affected === 1;
   }
 
   /**

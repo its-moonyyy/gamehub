@@ -12,12 +12,13 @@ export interface WalletUserInfo {
   balance: number;
 }
 
-export interface AdminCreditInfo {
+export interface AdminAdjustmentInfo {
   id: number;
   userId: number;
   phoneNumber: string;
   displayName: string;
   amountCents: number;
+  kind: 'admin_credit' | 'admin_withdrawal';
   balance: number;
   createdAt: Date;
 }
@@ -38,9 +39,17 @@ export class WalletService {
       : [];
   }
 
-  async recentCredits(): Promise<AdminCreditInfo[]> {
+  async recentAdjustments(): Promise<AdminAdjustmentInfo[]> {
+    return this.recentEntries(['admin_credit', 'admin_withdrawal']);
+  }
+
+  async recentCredits(): Promise<AdminAdjustmentInfo[]> {
+    return this.recentEntries(['admin_credit']);
+  }
+
+  private async recentEntries(kinds: AdminAdjustmentInfo['kind'][]): Promise<AdminAdjustmentInfo[]> {
     const entries = await this.dataSource.getRepository(WalletEntry).find({
-      where: { kind: 'admin_credit' },
+      where: kinds.map((kind) => ({ kind })),
       relations: { user: true },
       order: { createdAt: 'DESC', id: 'DESC' },
       take: 20,
@@ -51,12 +60,13 @@ export class WalletService {
       phoneNumber: entry.user.phoneNumber,
       displayName: entry.user.displayName,
       amountCents: entry.amount,
+      kind: entry.kind as AdminAdjustmentInfo['kind'],
       balance: entry.user.balance,
       createdAt: entry.createdAt,
     }));
   }
 
-  async creditByAdmin(userId: number, amountCents: number): Promise<AdminCreditInfo> {
+  async creditByAdmin(userId: number, amountCents: number): Promise<AdminAdjustmentInfo> {
     return this.dataSource.transaction(async (manager) => {
       const user = await manager.findOne(User, {
         where: { id: userId },
@@ -82,6 +92,40 @@ export class WalletService {
         phoneNumber: user.phoneNumber,
         displayName: user.displayName,
         amountCents,
+        kind: 'admin_credit',
+        balance: user.balance,
+        createdAt: entry.createdAt,
+      };
+    });
+  }
+
+  async withdrawByAdmin(userId: number, amountCents: number): Promise<AdminAdjustmentInfo> {
+    return this.dataSource.transaction(async (manager) => {
+      const user = await manager.findOne(User, {
+        where: { id: userId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!user) throw new NotFoundException('Player not found');
+      if (user.balance < amountCents) {
+        throw new BadRequestException('Insufficient player balance');
+      }
+      user.balance -= amountCents;
+      await manager.save(user);
+      const entry = await manager.save(
+        manager.create(WalletEntry, {
+          userId,
+          amount: -amountCents,
+          kind: 'admin_withdrawal',
+          reference: null,
+        }),
+      );
+      return {
+        id: entry.id,
+        userId,
+        phoneNumber: user.phoneNumber,
+        displayName: user.displayName,
+        amountCents: entry.amount,
+        kind: 'admin_withdrawal',
         balance: user.balance,
         createdAt: entry.createdAt,
       };

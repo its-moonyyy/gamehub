@@ -9,7 +9,7 @@ import {
 } from 'typeorm';
 import { User } from '../users/user.entity.js';
 
-export type WalletEntryKind = 'admin_credit' | 'game_stake' | 'game_payout';
+export type WalletEntryKind = 'admin_credit' | 'admin_withdrawal' | 'game_stake' | 'game_payout';
 
 /** Immutable balance change. A reference makes game charges idempotent. */
 @Entity('wallet_entries')

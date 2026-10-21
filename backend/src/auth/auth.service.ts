@@ -2,11 +2,13 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { compare, hash } from 'bcryptjs';
+import { DataSource } from 'typeorm';
 import { User } from '../users/user.entity.js';
 import {
   toProfile,
@@ -41,6 +43,7 @@ export class AuthService {
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
     private readonly config: ConfigService,
+    private readonly dataSource: DataSource,
   ) {}
 
   async register(dto: RegisterDto): Promise<AuthResult> {
@@ -125,8 +128,27 @@ export class AuthService {
       );
     }
 
-    user.passwordHash = await hash(dto.newPassword, BCRYPT_ROUNDS);
-    await this.usersService.save(user);
+    const newHash = await hash(dto.newPassword, BCRYPT_ROUNDS);
+    if (!await this.usersService.updatePasswordIfCurrent(id, user.passwordHash, newHash)) {
+      throw new UnauthorizedException('Password changed, sign in again');
+    }
+  }
+
+  async resetPasswordByAdmin(id: number, newPassword: string): Promise<void> {
+    const passwordHash = await hash(newPassword, BCRYPT_ROUNDS);
+    await this.dataSource.transaction(async (manager) => {
+      const user = await manager.findOne(User, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!user) throw new NotFoundException('Player not found');
+      if (await compare(newPassword, user.passwordHash)) {
+        throw new BadRequestException('The new password must differ from the current one');
+      }
+      user.passwordHash = passwordHash;
+      user.sessionVersion += 1;
+      await manager.save(user);
+    });
   }
 
   private async buildAuthResult(user: User): Promise<AuthResult> {
@@ -134,6 +156,7 @@ export class AuthService {
       sub: user.id,
       phoneNumber: user.phoneNumber,
       displayName: user.displayName,
+      sessionVersion: user.sessionVersion,
     });
 
     return { accessToken, user: toProfile(user) };

@@ -6,6 +6,7 @@ import type { JwtSignOptions } from '@nestjs/jwt';
 import { UsersModule } from '../users/users.module.js';
 import { AuthGuard } from './auth.guard.js';
 import { AuthController } from './auth.controller.js';
+import { AdminAccountController } from './admin-account.controller.js';
 import { AuthService } from './auth.service.js';
 
 @Module({
@@ -26,7 +27,7 @@ import { AuthService } from './auth.service.js';
       }),
     }),
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, AdminAccountController],
   providers: [
     AuthService,
     // Protect every route by default; @Public() opts a route out.

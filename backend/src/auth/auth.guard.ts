@@ -24,6 +24,7 @@ interface JwtPayload {
   phoneNumber: string;
   displayName: string;
   role?: 'admin';
+  sessionVersion?: number;
 }
 
 type RequestWithUser = Request & { user?: AuthenticatedUser };
@@ -81,6 +82,10 @@ export class AuthGuard implements CanActivate {
       }
       if (adminAccess === 'only') {
         throw new ForbiddenException('Admin access only');
+      }
+      const sessionVersion = await this.usersService.sessionVersion(payload.sub);
+      if (sessionVersion === null || sessionVersion !== (payload.sessionVersion ?? 0)) {
+        throw new UnauthorizedException('Invalid or expired access token');
       }
       request.user = {
         id: payload.sub,
